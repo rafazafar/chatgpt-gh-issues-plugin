@@ -40,6 +40,10 @@ on any of them in one click, pre-loaded with the issue, the repo and a plan-firs
   then send. Each attachment appears as its own removable chip titled with what it contains
   (e.g. `Plan first · acme/api#482 Webhook retries exhaust the…`), and adding more issues keeps the
   earlier ones. **Copy prompt** puts it on your clipboard.
+- **Stays responsive while GitHub is slow.** Nothing blocks: saved results from your last visit show
+  instantly and update in place (a thin progress bar and spinner show activity), filters and the board keep
+  the old view on screen until fresh data lands, and hovering an issue pre-loads its details so opening
+  it is instant.
 - **Batch.** Tick several items to start one thread each, or attach them all to the composer.
 - **Resizable detail panel** (drag the edge, double-click to reset, arrow keys to nudge; width is remembered).
 - **Keyboard:** `j`/`k` move · `x` select · `/` search · `Esc` close.
@@ -136,6 +140,7 @@ npm run build:plugin   # rebuild plugins/issue-launchpad (commit the result)
 ```sh
 npm run dev            # http://localhost:5199
 DEMO=1 npm run dev     # fake data, no network
+DEMO=1 LATENCY=3000 npm run dev   # simulate a slow GitHub to see the loading states
 ```
 
 **Install your working copy into Codex** (after `npm run build:plugin`):

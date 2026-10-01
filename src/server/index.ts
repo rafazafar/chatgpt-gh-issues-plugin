@@ -9,7 +9,7 @@ const html = await readFile(new URL("./app.html", import.meta.url), "utf8");
 const server = new McpServer({
   name: "issue-launchpad",
   title: "Issue Launchpad",
-  version: "0.1.3",
+  version: "0.1.4",
   icons: [{ src: "data:image/svg+xml," + encodeURIComponent(iconSvg), mimeType: "image/svg+xml" }],
 });
 registerLaunchpad(server, html);

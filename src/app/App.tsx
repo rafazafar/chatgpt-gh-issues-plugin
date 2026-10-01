@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
-import type { Board, IssueDetail, Item, OpenResult, Page, ProjectSummary, SearchParams, Viewer } from "../shared/types.ts";
+import type { AppError, Board, IssueDetail, Item, Page, ProjectSummary, SearchParams, Viewer } from "../shared/types.ts";
 import { DEFAULT_SEARCH } from "../shared/types.ts";
 import { connectHost, type Attachment, type Host } from "./host.ts";
 import { buildContext, buildPrompt, defaultMode, modesFor, type Mode } from "./prompt.ts";
@@ -8,7 +8,8 @@ import { Detail } from "./Detail.tsx";
 import { IssuesView } from "./IssuesView.tsx";
 import { ProjectsView } from "./ProjectsView.tsx";
 import { Empty, Segmented, Svg } from "./ui.tsx";
-import { load, save } from "./util.ts";
+import { cacheGet, cacheSet, fetchDetail, searchKey } from "./cache.ts";
+import { cx, load, save } from "./util.ts";
 
 const chipLabel = (i: Item) => {
   const t = `${i.repo && i.number != null ? `${i.repo}#${i.number} ` : ""}${i.title}`;
@@ -17,7 +18,8 @@ const chipLabel = (i: Item) => {
 
 type Tab = "issues" | "projects";
 type Toast = { msg: string; tone: "ok" | "err" } | null;
-type Fatal = NonNullable<OpenResult["error"]> | null;
+type Fatal = AppError | null;
+const isAuthError = (code?: string) => code === "no_token" || code === "bad_token";
 
 export function App() {
   const [host, setHost] = useState<Host | null>(null);
@@ -29,22 +31,37 @@ export function App() {
   const [toast, setToast] = useState<Toast>(null);
   const [detailW, setDetailW] = useState(() => load<number>("detailW", 440));
 
+  // Loading is never exclusive: `busy` only drives the progress cues, the UI stays usable.
+  const [busy, setBusy] = useState(0);
+  const track = useCallback(async <T,>(fn: () => Promise<T>): Promise<T> => {
+    setBusy((n) => n + 1);
+    try {
+      return await fn();
+    } finally {
+      setBusy((n) => n - 1);
+    }
+  }, []);
+
   // issues
-  const [params, setParams] = useState<SearchParams>(DEFAULT_SEARCH);
+  const [params, setParams] = useState<SearchParams>(() => ({ ...DEFAULT_SEARCH, ...load<Partial<SearchParams>>("params", {}), after: null }));
   const [page, setPage] = useState<Page<Item> | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [pageKey, setPageKey] = useState<string | null>(null); // which query `page` belongs to
+  const [staleAt, setStaleAt] = useState<number | null>(null); // set while showing saved results
+  const [refreshing, setRefreshing] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [text, setText] = useState("");
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [text, setText] = useState(() => params.text ?? "");
 
   // projects
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
   const [projWarn, setProjWarn] = useState<string | null>(null);
   const [projectId, setProjectId] = useState<string | null>(() => load<string | null>("projectId", null));
   const [board, setBoard] = useState<Board | null>(null);
-  const [boardLoading, setBoardLoading] = useState(false);
+  const [boardStaleAt, setBoardStaleAt] = useState<number | null>(null);
+  const [boardRefreshing, setBoardRefreshing] = useState(false);
   const [boardError, setBoardError] = useState<string | null>(null);
   const [groupBy, setGroupBy] = useState<string | null>(() => load<string | null>("groupBy", null));
-  const boards = useRef(new Map<string, Board>());
+  const forceBoard = useRef(false);
   const [nonce, setNonce] = useState(0);
 
   // selection
@@ -62,64 +79,84 @@ export function App() {
     window.setTimeout(() => setToast((t) => (t?.msg === msg ? null : t)), 4500);
   }, []);
 
-  const apply = useCallback((r: OpenResult) => {
-    if (r.error) {
-      setFatal(r.error);
-      setLoading(false);
-      return;
-    }
-    setFatal(null);
-    if (r.viewer) setViewer(r.viewer);
-    if (r.issues) setPage(r.issues);
-    if (r.params) {
-      setParams(r.params);
-      setText(r.params.text ?? "");
-    }
-    setLoading(false);
-  }, []);
-
-  // ---- boot
+  // ---- boot: connect, then load data in the background (saved results paint first)
   useEffect(() => {
-    let got = false;
-    connectHost((r) => {
-      got = true;
-      apply(r);
-    }).then((h) => {
+    connectHost().then((h) => {
       hostRef.current = h;
       setHost(h);
-      // The host normally pushes the initial tool result; fall back to asking for it.
-      window.setTimeout(async () => {
-        if (got) return;
-        try {
-          apply(await h.callTool<OpenResult>("launchpad.open"));
-        } catch (e) {
-          setFatal({ code: "unknown", message: String((e as Error).message) });
-          setLoading(false);
-        }
-      }, 2500);
     });
   }, []);
+
+  const loadViewer = useCallback(() => {
+    const h = hostRef.current!;
+    const saved = cacheGet<Viewer>("viewer");
+    if (saved) setViewer(saved.value);
+    void track(() =>
+      h.callTool<Viewer>("launchpad.viewer").then((v) => {
+        cacheSet("viewer", v);
+        setViewer(v);
+      }),
+    ).catch(() => undefined); // auth problems surface through the issue search
+  }, [track]);
 
   // ---- issues
   const runSearch = useCallback(async (next: SearchParams, append = false) => {
     const h = hostRef.current;
     if (!h) return;
+    const key = searchKey(next);
     const seq = ++reqSeq.current;
-    append ? setLoadingMore(true) : setLoading(true);
-    try {
-      const res = await h.callTool<Page<Item>>("launchpad.search", { ...next });
-      if (seq !== reqSeq.current) return;
-      setPage((prev) => (append && prev ? { ...res, items: [...prev.items, ...res.items] } : res));
-    } catch (e) {
-      if (seq === reqSeq.current) say((e as Error).message, "err");
-    } finally {
-      if (seq === reqSeq.current) (setLoading(false), setLoadingMore(false));
-    }
-  }, [say]);
+
+    if (!append) {
+      // Saved results for exactly this query show instantly; fresh ones replace them when they land.
+      const saved = cacheGet<Page<Item>>(key);
+      if (saved) {
+        setPage(saved.value);
+        setPageKey(key);
+        setStaleAt(saved.at);
+      }
+      setRefreshing(true);
+    } else setLoadingMore(true);
+    setLoadError(null);
+
+    await track(async () => {
+      try {
+        const res = await h.callTool<Page<Item>>("launchpad.search", { ...next });
+        if (seq !== reqSeq.current) return; // a newer query superseded this one
+        if (append) setPage((prev) => (prev ? { ...res, items: [...prev.items, ...res.items] } : res));
+        else {
+          cacheSet(key, res);
+          setPage(res);
+          setPageKey(key);
+          setStaleAt(null);
+        }
+        setFatal(null);
+      } catch (e) {
+        if (seq !== reqSeq.current) return;
+        const err = e as Error & { code?: AppError["code"] };
+        if (isAuthError(err.code)) setFatal({ code: err.code!, message: err.message });
+        else {
+          setLoadError(err.message);
+          say(err.message, "err");
+        }
+      } finally {
+        if (seq === reqSeq.current) {
+          setRefreshing(false);
+          setLoadingMore(false);
+        }
+      }
+    });
+  }, [say, track]);
+
+  useEffect(() => {
+    if (!host) return;
+    loadViewer();
+    void runSearch(paramsRef.current);
+  }, [host]);
 
   const changeParams = (patch: Partial<SearchParams>) => {
     const next = { ...paramsRef.current, ...patch, after: null };
     setParams(next);
+    save("params", { ...next, after: undefined });
     void runSearch(next);
   };
 
@@ -129,24 +166,32 @@ export function App() {
     return () => window.clearTimeout(t);
   }, [text]);
 
-  // ---- projects
-  const loadProjects = useCallback(async (force = false) => {
+  // ---- projects (list + boards are stale-while-revalidate too)
+  const loadProjects = useCallback(async () => {
     const h = hostRef.current;
     if (!h) return;
-    if (force) boards.current.clear();
-    try {
-      const r = await h.callTool<{ projects: ProjectSummary[]; warnings: string[] }>("launchpad.projects");
-      setProjects(r.projects);
-      setProjWarn(r.warnings[0] ?? null);
-      setProjectId((cur) => {
-        if (cur && r.projects.some((p) => p.id === cur)) return cur;
-        return r.projects.find((p) => p.itemCount > 0)?.id ?? null;
-      });
-    } catch (e) {
-      setProjects([]);
-      setProjWarn((e as Error).message);
+    type Listing = { projects: ProjectSummary[]; warnings: string[] };
+    const choose = (list: ProjectSummary[]) =>
+      setProjectId((cur) => (cur && list.some((p) => p.id === cur) ? cur : (list.find((p) => p.itemCount > 0)?.id ?? null)));
+    const saved = cacheGet<Listing>("projects");
+    if (saved) {
+      setProjects(saved.value.projects);
+      setProjWarn(saved.value.warnings[0] ?? null);
+      choose(saved.value.projects);
     }
-  }, []);
+    await track(async () => {
+      try {
+        const r = await h.callTool<Listing>("launchpad.projects");
+        cacheSet("projects", r);
+        setProjects(r.projects);
+        setProjWarn(r.warnings[0] ?? null);
+        choose(r.projects);
+      } catch (e) {
+        setProjWarn((e as Error).message);
+        setProjects((cur) => cur ?? []);
+      }
+    });
+  }, [track]);
 
   useEffect(() => {
     if (tab === "projects" && host && projects === null) void loadProjects();
@@ -156,34 +201,52 @@ export function App() {
     const h = hostRef.current;
     if (!projectId || !h || tab !== "projects") return;
     save("projectId", projectId);
-    const cached = boards.current.get(projectId);
-    if (cached) {
-      setBoard(cached);
-      setBoardError(null);
-      return;
-    }
-    let cancelled = false;
-    setBoardLoading(true);
+    const key = "board:" + projectId;
+    const force = forceBoard.current;
+    forceBoard.current = false;
+
+    const saved = cacheGet<Board>(key);
     setBoardError(null);
-    h.callTool<Board>("launchpad.board", { projectId })
-      .then((b) => {
-        if (cancelled) return;
-        boards.current.set(projectId, b);
-        setBoard(b);
-      })
-      .catch((e) => !cancelled && setBoardError((e as Error).message))
-      .finally(() => !cancelled && setBoardLoading(false));
+    setBoard(saved?.value ?? null); // null → skeleton only for a project we've never loaded
+    setBoardStaleAt(saved?.at ?? null);
+    if (saved && !force && Date.now() - saved.at < 20_000) return; // fresh enough
+
+    let cancelled = false;
+    setBoardRefreshing(true);
+    void track(() =>
+      h
+        .callTool<Board>("launchpad.board", { projectId })
+        .then((b) => {
+          if (cancelled) return;
+          cacheSet(key, b);
+          setBoard(b);
+          setBoardStaleAt(null);
+        })
+        .catch((e) => !cancelled && !saved && setBoardError((e as Error).message))
+        .finally(() => !cancelled && setBoardRefreshing(false)),
+    );
     return () => {
       cancelled = true;
+      setBoardRefreshing(false);
     };
   }, [projectId, tab, host, nonce]);
 
+  // Refresh keeps everything on screen and updates it in place.
   const refresh = () => {
     if (tab === "issues") return void runSearch({ ...params, after: null });
-    boards.current.clear();
-    setBoard(null);
-    void loadProjects(true);
+    forceBoard.current = true;
+    void loadProjects();
     setNonce((n) => n + 1);
+  };
+
+  // Warm the detail panel when the pointer rests on a row, so opening it is instant.
+  const hoverTimer = useRef<number | undefined>(undefined);
+  const prefetch = (item: Item | null) => {
+    window.clearTimeout(hoverTimer.current);
+    if (!item || !item.repo || item.number == null || !hostRef.current) return;
+    hoverTimer.current = window.setTimeout(() => {
+      void fetchDetail(hostRef.current!, item.repo!, item.number!).catch(() => undefined);
+    }, 120);
   };
 
   // ---- launching
@@ -192,7 +255,7 @@ export function App() {
       items.map(async (i) => {
         if (i.kind === "draft" || !i.repo || i.number == null) return i;
         try {
-          return await hostRef.current!.callTool<IssueDetail>("launchpad.issue", { repo: i.repo, number: i.number });
+          return await fetchDetail(hostRef.current!, i.repo, i.number);
         } catch {
           return i;
         }
@@ -307,7 +370,19 @@ export function App() {
   );
 
   // ---- render
-  if (fatal) return <Fatal error={fatal} onRetry={async () => { setFatal(null); setLoading(true); if (host) apply(await host.callTool<OpenResult>("launchpad.open").catch((e) => ({ error: { code: "unknown" as const, message: String(e.message) } }))); }} />;
+  if (fatal)
+    return (
+      <Fatal
+        error={fatal}
+        onRetry={() => {
+          setFatal(null);
+          if (host) {
+            loadViewer();
+            void runSearch(paramsRef.current);
+          }
+        }}
+      />
+    );
 
   return (
     <div class={`app ${focus ? "has-detail" : ""} ${host?.mode === "codex" ? "host-codex" : ""}`} style={{ "--detail-w": `${detailW}px` }}>
@@ -321,19 +396,22 @@ export function App() {
             <input id="search" placeholder="Search · try label:bug no:assignee   ( / )" value={text} onInput={(e) => setText((e.target as HTMLInputElement).value)} />
           </div>
         )}
-        <button class="icon-btn" title="Refresh" aria-label="Refresh" onClick={refresh}><Svg d="refresh" /></button>
+        <button class={cx("icon-btn", busy > 0 && "spin")} title={busy > 0 ? "Updating…" : "Refresh"} aria-label="Refresh" onClick={refresh}><Svg d="refresh" /></button>
         {viewer && (
           <div class="viewer" title={viewer.orgs.length ? `Orgs: ${viewer.orgs.join(", ")}` : viewer.login}>
             <img src={viewer.avatarUrl} alt="" width="22" height="22" />
             <span>{viewer.login}</span>
           </div>
         )}
+        <div class={cx("progress", busy > 0 && "on")} role="progressbar" aria-label="Loading" aria-hidden={busy === 0} />
       </header>
 
       <main>
         {tab === "issues" ? (
           <IssuesView
-            params={params} onParams={changeParams} page={page} loading={loading} loadingMore={loadingMore}
+            params={params} onParams={changeParams} page={page} refreshing={refreshing} loadingMore={loadingMore}
+            dim={refreshing && pageKey !== searchKey(params)} staleAt={staleAt} error={page ? null : loadError}
+            onRetry={() => runSearch({ ...params, after: null })} onHover={prefetch}
             onMore={() => page?.endCursor && runSearch({ ...params, after: page.endCursor }, true)}
             focusId={focus?.id ?? null} checked={new Set(checked.keys())} onFocus={setFocus} onCheck={toggleCheck}
             onQuickStart={quickStart} groupByRepo={groupByRepo} onGroup={(v) => { setGroupByRepo(v); save("groupByRepo", v); }}
@@ -342,7 +420,7 @@ export function App() {
         ) : (
           <ProjectsView
             projects={projects} warning={projWarn} projectId={projectId} onProject={setProjectId}
-            board={board} loading={boardLoading} error={boardError}
+            board={board} refreshing={boardRefreshing} staleAt={boardStaleAt} error={boardError} onHover={prefetch}
             groupBy={groupBy} onGroupBy={(g) => { setGroupBy(g); save("groupBy", g); }}
             focusId={focus?.id ?? null} checked={new Set(checked.keys())} onFocus={setFocus} onCheck={toggleCheck}
             onQuickStart={quickStart} quickLabel={quickLabel}

@@ -11,6 +11,7 @@ const h = process.env.DEMO ? { ...demo, errorOf: real.errorOf } : real;
 const port = Number(process.env.PORT ?? 5199);
 const tools = {
   "launchpad.open": () => h.open(),
+  "launchpad.viewer": () => h.viewer(),
   "launchpad.search": (a) => h.search(a),
   "launchpad.projects": () => h.projects(),
   "launchpad.board": (a) => h.board(a.projectId),
@@ -28,6 +29,8 @@ createServer(async (req, res) => {
       let body = "";
       for await (const c of req) body += c;
       const out = await tools[name](body ? JSON.parse(body) : {});
+      // LATENCY=3000 npm run dev simulates a slow GitHub, to exercise loading states.
+      if (process.env.LATENCY) await new Promise((r) => setTimeout(r, Number(process.env.LATENCY)));
       res.writeHead(200, { "content-type": "application/json" });
       return res.end(JSON.stringify(out));
     }

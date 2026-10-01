@@ -32365,15 +32365,8 @@ function errorOf(e) {
   if (e instanceof GitHubError) return { code: e.code, message: e.message };
   return { code: "unknown", message: e instanceof Error ? e.message : String(e) };
 }
-async function open(args = {}) {
-  const params = { ...DEFAULT_SEARCH, ...args, after: null };
-  try {
-    const [viewer, issues] = await Promise.all([getViewer(), searchItems(params)]);
-    return { viewer, issues, params };
-  } catch (e) {
-    return { error: errorOf(e) };
-  }
-}
+var open = async () => ({ ready: true });
+var viewer = () => getViewer();
 var search = (p2) => searchItems({ ...DEFAULT_SEARCH, ...p2 });
 var projects = () => listProjects();
 var board = (projectId) => getBoard(projectId);
@@ -32460,6 +32453,18 @@ function registerLaunchpad(server2, html2) {
   );
   K3(
     server2,
+    "launchpad.viewer",
+    {
+      title: "Current GitHub user",
+      description: "The GitHub account Issue Launchpad is signed in as.",
+      inputSchema: {},
+      annotations: readonly2,
+      _meta: { ui: { resourceUri: UI_URI, visibility: ["app"] } }
+    },
+    guard(viewer)
+  );
+  K3(
+    server2,
     "launchpad.search",
     {
       title: "Search GitHub issues",
@@ -32529,7 +32534,7 @@ var html = await readFile(new URL("./app.html", import.meta.url), "utf8");
 var server = new McpServer({
   name: "issue-launchpad",
   title: "Issue Launchpad",
-  version: "0.1.3",
+  version: "0.1.4",
   icons: [{ src: "data:image/svg+xml," + encodeURIComponent(iconSvg), mimeType: "image/svg+xml" }]
 });
 registerLaunchpad(server, html);

@@ -105,6 +105,19 @@ export function registerLaunchpad(server: McpServer, html: string) {
 
   registerAppTool(
     server,
+    "launchpad.viewer",
+    {
+      title: "Current GitHub user",
+      description: "The GitHub account Issue Launchpad is signed in as.",
+      inputSchema: {},
+      annotations: readonly,
+      _meta: { ui: { resourceUri: UI_URI, visibility: ["app"] } },
+    },
+    guard(h.viewer),
+  );
+
+  registerAppTool(
+    server,
     "launchpad.search",
     {
       title: "Search GitHub issues",

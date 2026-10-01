@@ -1,6 +1,5 @@
 /** Fake data for README screenshots and UI work: `DEMO=1 npm run dev`. No network, no real repos. */
-import type { Board, IssueDetail, Item, OpenResult, Page, ProjectSummary, SearchParams } from "../shared/types.ts";
-import { DEFAULT_SEARCH } from "../shared/types.ts";
+import type { Board, IssueDetail, Item, Page, ProjectSummary, SearchParams, Viewer } from "../shared/types.ts";
 
 const avatar = (letter: string, hue: number) =>
   "data:image/svg+xml," +
@@ -60,9 +59,8 @@ Seen in production on 2026-09-28. Repro: \`scripts/burst.sh --tenants 40\`.
 
 const page = <T>(items: T[]): Page<T> => ({ items, totalCount: items.length, hasNextPage: false, endCursor: null });
 
-export async function open(): Promise<OpenResult> {
-  return { viewer: { login: "ada", name: "Ada", avatarUrl: ada.avatarUrl, orgs: ["acme"] }, issues: page(items), params: DEFAULT_SEARCH };
-}
+export const open = async () => ({ ready: true });
+export const viewer = async (): Promise<Viewer> => ({ login: "ada", name: "Ada", avatarUrl: ada.avatarUrl, orgs: ["acme"] });
 export const search = async (p: SearchParams) => {
   const needle = (p.text ?? "").toLowerCase();
   return page(items.filter((i) => (!p.repo || i.repo === p.repo) && (!needle || i.title.toLowerCase().includes(needle)) && (!p.labels?.length || p.labels.every((l) => i.labels.some((x) => x.name === l)))));

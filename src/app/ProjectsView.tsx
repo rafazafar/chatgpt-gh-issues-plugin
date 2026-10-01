@@ -1,6 +1,6 @@
 import { useMemo, useState } from "preact/hooks";
 import type { Board, Item, ProjectSummary } from "../shared/types.ts";
-import { Avatars, Checkbox, Empty, LabelChip, Skeleton, StateIcon, Svg } from "./ui.tsx";
+import { Avatars, Checkbox, Empty, LabelChip, Skeleton, Spinner, StateIcon, Svg } from "./ui.tsx";
 import { cx, projectColor, timeAgo } from "./util.ts";
 
 type Props = {
@@ -9,8 +9,11 @@ type Props = {
   projectId: string | null;
   onProject: (id: string) => void;
   board: Board | null;
-  loading: boolean;
+  /** Updating in the background; the board on screen stays interactive. */
+  refreshing: boolean;
+  staleAt: number | null;
   error: string | null;
+  onHover: (i: Item | null) => void;
   groupBy: string | null;
   onGroupBy: (name: string) => void;
   focusId: string | null;
@@ -21,11 +24,12 @@ type Props = {
   quickLabel: string;
 };
 
-function Card({ item, hide, ...p }: { item: Item; hide: string; focused: boolean; checked: boolean; quickLabel: string } & Pick<Props, "onFocus" | "onCheck" | "onQuickStart">) {
+function Card({ item, hide, ...p }: { item: Item; hide: string; focused: boolean; checked: boolean; quickLabel: string } & Pick<Props, "onFocus" | "onCheck" | "onQuickStart" | "onHover">) {
   const extras = Object.entries(item.fields).filter(([k]) => !["Title", "Assignees", "Labels", hide].includes(k)).slice(0, 3);
   return (
     <li class={cx("card", p.focused && "focused", p.checked && "checked")} tabIndex={0} data-id={item.id}
-      onClick={() => p.onFocus(item)} onKeyDown={(e) => e.key === "Enter" && p.onFocus(item)}>
+      onClick={() => p.onFocus(item)} onKeyDown={(e) => e.key === "Enter" && p.onFocus(item)}
+      onMouseEnter={() => p.onHover(item)} onMouseLeave={() => p.onHover(null)} onFocus={() => p.onHover(item)}>
       <div class="card-top">
         <StateIcon item={item} size={14} />
         <span class="sub">{item.repo ? `${item.repo.split("/")[1]} #${item.number}` : "Draft"}</span>
@@ -105,13 +109,16 @@ export function ProjectsView(p: Props) {
           <input placeholder="Filter cards…" value={q} onInput={(e) => setQ((e.target as HTMLInputElement).value)} />
         </div>
         <label class="toggle"><input type="checkbox" checked={hideDone} onChange={(e) => setHideDone((e.target as HTMLInputElement).checked)} /> Hide done</label>
+        {p.refreshing && (
+          <span class="note muted"><Spinner />{p.board ? (p.staleAt ? `Saved ${timeAgo(new Date(p.staleAt).toISOString())} · updating…` : "Updating…") : "Loading board…"}</span>
+        )}
       </div>
 
       {p.error ? (
         <Empty title="Couldn't load this project">{p.error}</Empty>
       ) : !p.projectId ? (
         <Empty title="Pick a project" icon={<Svg d="draft" size={28} />}>Choose a GitHub Project above to see its board. Start a task from any card.</Empty>
-      ) : p.loading || !p.board ? (
+      ) : !p.board ? (
         <div class="board"><Skeleton rows={4} /></div>
       ) : (
         <>
@@ -123,7 +130,7 @@ export function ProjectsView(p: Props) {
                 <ul>
                   {c.items.map((i) => (
                     <Card key={i.id} item={i} hide={field?.name ?? ""} focused={p.focusId === i.id} checked={p.checked.has(i.id)}
-                      onFocus={p.onFocus} onCheck={p.onCheck} onQuickStart={p.onQuickStart} quickLabel={p.quickLabel} />
+                      onFocus={p.onFocus} onCheck={p.onCheck} onQuickStart={p.onQuickStart} onHover={p.onHover} quickLabel={p.quickLabel} />
                   ))}
                   {c.items.length === 0 && <li class="col-empty">Empty</li>}
                 </ul>

@@ -1,13 +1,21 @@
 import { useMemo } from "preact/hooks";
 import type { Item, Page, SearchParams } from "../shared/types.ts";
-import { Avatars, Checkbox, Empty, LabelChip, Segmented, Skeleton, StateIcon, Svg } from "./ui.tsx";
+import { Avatars, Checkbox, Empty, LabelChip, Segmented, Skeleton, Spinner, StateIcon, Svg } from "./ui.tsx";
 import { cx, timeAgo } from "./util.ts";
 
 type Props = {
   params: SearchParams;
   onParams: (p: Partial<SearchParams>) => void;
   page: Page<Item> | null;
-  loading: boolean;
+  /** A request is in flight. Never blocks: existing results stay on screen and interactive. */
+  refreshing: boolean;
+  /** The list on screen belongs to an older query, so it's shown muted until the new one lands. */
+  dim: boolean;
+  /** Set while showing saved results from this timestamp. */
+  staleAt: number | null;
+  error: string | null;
+  onRetry: () => void;
+  onHover: (i: Item | null) => void;
   loadingMore: boolean;
   onMore: () => void;
   focusId: string | null;
@@ -21,10 +29,11 @@ type Props = {
 };
 
 export function IssueRow({
-  item, focused, checked, onFocus, onCheck, onQuickStart, quickLabel, showRepo = true,
+  item, focused, checked, onFocus, onCheck, onQuickStart, onHover, quickLabel, showRepo = true,
 }: {
   item: Item; focused: boolean; checked: boolean; showRepo?: boolean; quickLabel: string;
   onFocus: (i: Item) => void; onCheck: (i: Item, v: boolean) => void; onQuickStart: (i: Item) => void;
+  onHover: (i: Item | null) => void;
 }) {
   return (
     <li
@@ -33,6 +42,9 @@ export function IssueRow({
       tabIndex={0}
       onClick={() => onFocus(item)}
       onKeyDown={(e) => e.key === "Enter" && onFocus(item)}
+      onMouseEnter={() => onHover(item)}
+      onMouseLeave={() => onHover(null)}
+      onFocus={() => onHover(item)}
     >
       <Checkbox checked={checked} onChange={(v) => onCheck(item, v)} label={`Select ${item.title}`} />
       <StateIcon item={item} />
@@ -126,31 +138,41 @@ export function IssuesView(p: Props) {
       )}
 
       <div class="count" aria-live="polite">
-        {p.loading ? "Loading…" : p.page ? `${p.page.totalCount.toLocaleString()} result${p.page.totalCount === 1 ? "" : "s"}${p.page.totalCount > items.length ? ` · showing ${items.length}` : ""}` : ""}
+        {p.refreshing ? (
+          <span class="note"><Spinner />{p.page ? (p.staleAt ? `Saved results from ${timeAgo(new Date(p.staleAt).toISOString())} · updating…` : "Updating…") : "Loading from GitHub…"}</span>
+        ) : p.page ? (
+          `${p.page.totalCount.toLocaleString()} result${p.page.totalCount === 1 ? "" : "s"}${p.page.totalCount > items.length ? ` · showing ${items.length}` : ""}`
+        ) : ""}
       </div>
 
       <div class="list-scroll">
-        {p.loading && !p.page ? (
-          <Skeleton />
+        {!p.page ? (
+          p.error ? (
+            <Empty title="Couldn't load issues" icon={<Svg d="issue" size={28} />}>
+              {p.error} <button class="ghost link" onClick={p.onRetry}>Try again</button>
+            </Empty>
+          ) : (
+            <Skeleton />
+          )
         ) : items.length === 0 ? (
           <Empty title="Nothing here" icon={<Svg d="issue" size={28} />}>
             No {p.params.kind === "pr" ? "pull requests" : "issues"} match these filters. Try “All” state or a different scope.
           </Empty>
         ) : (
-          <div class={cx(p.loading && "dim")}>
+          <div class={cx(p.dim && "dim")}>
             {groups.map((g) => (
               <div key={g.name} class="group">
                 {g.name && <h4 class="group-head">{g.name}<span>{g.items.length}</span></h4>}
                 <ul class="rows">
                   {g.items.map((i) => (
                     <IssueRow key={i.id} item={i} showRepo={!p.groupByRepo} focused={p.focusId === i.id} checked={p.checked.has(i.id)}
-                      onFocus={p.onFocus} onCheck={p.onCheck} onQuickStart={p.onQuickStart} quickLabel={p.quickLabel} />
+                      onFocus={p.onFocus} onCheck={p.onCheck} onQuickStart={p.onQuickStart} onHover={p.onHover} quickLabel={p.quickLabel} />
                   ))}
                 </ul>
               </div>
             ))}
             {p.page?.hasNextPage && (
-              <button class="more-btn" disabled={p.loadingMore} onClick={p.onMore}>{p.loadingMore ? "Loading…" : "Load more"}</button>
+              <button class="more-btn" disabled={p.loadingMore} onClick={p.onMore}>{p.loadingMore ? <span class="note"><Spinner />Loading more…</span> : "Load more"}</button>
             )}
           </div>
         )}

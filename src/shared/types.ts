@@ -81,11 +81,9 @@ export type IssueDetail = Item & {
   recentComments: Comment[];
 };
 
-export type OpenResult = {
-  viewer?: Viewer;
-  issues?: Page<Item>;
-  params?: SearchParams;
-  error?: { code: "no_token" | "bad_token" | "network" | "unknown"; message: string };
+export type AppError = {
+  code: "no_token" | "bad_token" | "network" | "unknown";
+  message: string;
 };
 
 export const DEFAULT_SEARCH: SearchParams = {

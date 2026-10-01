@@ -5,6 +5,7 @@ import { MODES, buildPrompt, defaultMode, modesFor, type Mode } from "./prompt.t
 import { renderMarkdown } from "./markdown.ts";
 import { timeAgo, cx } from "./util.ts";
 import { Avatars, LabelChip, StateIcon, Svg } from "./ui.tsx";
+import { fetchDetail, peekDetail } from "./cache.ts";
 
 const shorten = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s);
 
@@ -31,15 +32,14 @@ export function Detail({ item, host, mode, onMode, onClose, onStart, onAttach, o
 
   // Reload full text whenever the focused item changes.
   useEffect(() => {
-    setDetail(null);
+    setDetail(item.repo && item.number != null ? (peekDetail(item.repo, item.number) ?? null) : null);
     setErr(null);
     setNotes("");
     setShowPrompt(false);
     setEdited(null);
     if (item.kind === "draft" || !item.repo || item.number == null) return;
     let cancelled = false;
-    host
-      .callTool<IssueDetail>("launchpad.issue", { repo: item.repo, number: item.number })
+    fetchDetail(host, item.repo, item.number)
       .then((d) => !cancelled && setDetail(d))
       .catch((e) => !cancelled && setErr(String(e.message ?? e)));
     return () => {

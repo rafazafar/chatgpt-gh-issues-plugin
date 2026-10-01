@@ -124,3 +124,7 @@ export function Skeleton({ rows = 8 }: { rows?: number }) {
     </div>
   );
 }
+
+export function Spinner({ label }: { label?: string }) {
+  return <i class="spinner" role="img" aria-label={label ?? "Loading"} />;
+}

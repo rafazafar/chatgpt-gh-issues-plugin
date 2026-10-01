@@ -4,7 +4,6 @@ import {
   applyHostStyleVariables,
 } from "@modelcontextprotocol/ext-apps";
 import { OpenAIExtensions } from "@openai/mcp-extensions/app";
-import type { OpenResult } from "../shared/types.ts";
 
 /**
  * The only file that knows whether we're running inside Codex or in the
@@ -30,6 +29,9 @@ export type Attachment = { key: string; title: string; text: string };
 
 const SEND_TIMEOUT = 300_000;
 
+/** An Error that remembers the server's error code (no_token, bad_token, …). */
+const failure = (message: string, code?: string) => Object.assign(new Error(message), { code });
+
 async function copy(text: string) {
   try {
     await navigator.clipboard.writeText(text);
@@ -43,7 +45,7 @@ async function copy(text: string) {
   }
 }
 
-export async function connectHost(onInitial: (r: OpenResult) => void): Promise<Host> {
+export async function connectHost(): Promise<Host> {
   const embedded = window.parent !== window;
 
   if (!embedded) {
@@ -54,10 +56,9 @@ export async function connectHost(onInitial: (r: OpenResult) => void): Promise<H
         body: JSON.stringify(args),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json?.error?.message ?? `Request failed (${res.status})`);
+      if (!res.ok) throw failure(json?.error?.message ?? `Request failed (${res.status})`, json?.error?.code);
       return json as T;
     };
-    queueMicrotask(async () => onInitial(await callTool<OpenResult>("launchpad.open")));
     return {
       mode: "standalone",
       callTool,
@@ -94,11 +95,6 @@ export async function connectHost(onInitial: (r: OpenResult) => void): Promise<H
     const present = new Set((mc.content ?? []).map((c) => c.text));
     for (const [k, a] of attached) if (!present.has(a.text)) attached.delete(k);
   });
-  // Register before connect so the initial tool result is not missed.
-  app.ontoolresult = (result) => {
-    const data = result.structuredContent as OpenResult | undefined;
-    if (data) onInitial(data);
-  };
   await app.connect();
   applyContext(app.getHostContext());
 
@@ -109,10 +105,10 @@ export async function connectHost(onInitial: (r: OpenResult) => void): Promise<H
     },
     async callTool<T,>(name: string, args: Record<string, unknown> = {}) {
       const res = await app.callServerTool({ name, arguments: args });
-      const sc = res.structuredContent as { error?: { message: string } } | undefined;
+      const sc = res.structuredContent as { error?: { message: string; code?: string } } | undefined;
       if (res.isError) {
         const text = res.content?.find((c) => c.type === "text") as { text: string } | undefined;
-        throw new Error(sc?.error?.message ?? text?.text ?? "Tool call failed");
+        throw failure(sc?.error?.message ?? text?.text ?? "Tool call failed", sc?.error?.code);
       }
       return res.structuredContent as T;
     },
