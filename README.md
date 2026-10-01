@@ -64,6 +64,21 @@ codex plugin add issue-launchpad@chatgpt-gh-issues-plugin
 
 Fully quit and reopen the app, then choose **Issue Launchpad** in the sidebar.
 
+### Update
+
+Plugins don't update themselves. When a new version is released, run:
+
+```sh
+codex plugin marketplace upgrade chatgpt-gh-issues-plugin
+codex plugin add issue-launchpad@chatgpt-gh-issues-plugin
+```
+
+Then fully quit and reopen the app. The first command pulls the latest release; the second installs it (no need to
+remove first). Check with `codex plugin list`; the VERSION column should show the new version.
+
+> Running only the second command does nothing, because Codex is still looking at its old copy of this repo; the
+> `marketplace upgrade` step is what refreshes it. Your settings (remembered host/account, panel width) are kept.
+
 Uninstall:
 
 ```sh
