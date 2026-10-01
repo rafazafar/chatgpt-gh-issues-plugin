@@ -6,6 +6,8 @@ import { renderMarkdown } from "./markdown.ts";
 import { timeAgo, cx } from "./util.ts";
 import { Avatars, LabelChip, StateIcon, Svg } from "./ui.tsx";
 
+const shorten = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s);
+
 type Props = {
   item: Item;
   host: Host;
@@ -15,7 +17,7 @@ type Props = {
   /** Start a new thread with exactly this text. */
   onStart: (prompt: string, label: string) => Promise<void>;
   /** Attach this text to the open composer so the user can pick a model and send. */
-  onAttach: (prompt: string) => Promise<void>;
+  onAttach: (prompt: string, title: string) => Promise<void>;
   onCopy: (text: string) => Promise<void>;
 };
 
@@ -53,6 +55,8 @@ export function Detail({ item, host, mode, onMode, onClose, onStart, onAttach, o
   useEffect(() => setEdited(null), [generated]);
   const prompt = edited ?? generated;
   const label = item.repo && item.number != null ? `${item.repo}#${item.number}` : item.title;
+  // What the composer chip says, e.g. "Plan first · acme/api#482 Webhook retries exhaust the…"
+  const chipTitle = shorten(`${MODES.find((m) => m.id === active)!.label} · ${label}${item.number != null ? " " + item.title : ""}`, 64);
   const html = useMemo(() => (detail ? renderMarkdown(detail.body) : ""), [detail]);
 
   const start = async () => {
@@ -183,7 +187,7 @@ export function Detail({ item, host, mode, onMode, onClose, onStart, onAttach, o
         </div>
         <div class="launch-actions secondary">
           <button onClick={() => onCopy(prompt)} title="Copy the prompt to your clipboard">Copy prompt</button>
-          <button onClick={() => onAttach(prompt)} title="Attach the prompt to the open composer, so you can choose a model before sending">
+          <button onClick={() => onAttach(prompt, chipTitle)} title="Attach the prompt to the open composer, so you can choose a model before sending">
             Add to composer
           </button>
           <button class="ghost" onClick={() => setShowPrompt((v) => !v)}>{showPrompt ? "Hide prompt" : "Edit prompt"}</button>

@@ -37,7 +37,9 @@ on any of them in one click, pre-loaded with the issue, the repo and a plan-firs
   Start, Copy and Add to composer alike.
 - **Pick a model first.** The extension API can't choose a model for a new thread (it uses your
   default). Use **Add to composer** to attach the prompt to the open composer, choose the model there,
-  then send. **Copy prompt** puts it on your clipboard.
+  then send. Each attachment appears as its own removable chip titled with what it contains
+  (e.g. `Plan first · acme/api#482 Webhook retries exhaust the…`), and adding more issues keeps the
+  earlier ones. **Copy prompt** puts it on your clipboard.
 - **Batch.** Tick several items to start one thread each, or attach them all to the composer.
 - **Resizable detail panel** (drag the edge, double-click to reset, arrow keys to nudge; width is remembered).
 - **Keyboard:** `j`/`k` move · `x` select · `/` search · `Esc` close.
@@ -87,7 +89,7 @@ serves an **MCP App** UI.
 | --- | --- | --- |
 | Sidebar app + side-panel app | `launchpad.open`, `launchpad.tray` tools | `openai/ui` entrypoints: `global`, `thread` |
 | Start a new thread | `src/app/host.ts` | `ui/message` with `target: "new"` |
-| Add to composer | `src/app/host.ts` | `ui/update-model-context` |
+| Add to composer | `src/app/host.ts` | `ui/update-model-context` + `_meta["openai/title"]` |
 | GitHub data | `src/server/github.ts` | plain GraphQL over `fetch` |
 | Prompt templates | `src/app/prompt.ts` | n/a |
 

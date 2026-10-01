@@ -15,13 +15,18 @@ export type Host = {
   callTool<T>(name: string, args?: Record<string, unknown>): Promise<T>;
   /** Start a brand-new thread with this prompt. Resolves to how it was delivered. */
   startThread(prompt: string): Promise<"sent" | "copied">;
-  /** Attach text to the active composer as model context. */
-  attachContext(text: string): Promise<"attached" | "copied">;
+  /**
+   * Add titled attachments to the active composer. Attachments accumulate (the host replaces the
+   * app's previous context on every update, so we resend the full set) and each shows as its own chip.
+   */
+  attach(items: Attachment[]): Promise<"attached" | "copied">;
   /** Copy to the system clipboard (never attaches anything to the conversation). */
   copyText(text: string): Promise<void>;
   openLink(url: string): void;
   canStartThreads: boolean;
 };
+
+export type Attachment = { key: string; title: string; text: string };
 
 const SEND_TIMEOUT = 300_000;
 
@@ -62,8 +67,8 @@ export async function connectHost(onInitial: (r: OpenResult) => void): Promise<H
         await copy(prompt);
         return "copied";
       },
-      async attachContext(text) {
-        await copy(text);
+      async attach(items) {
+        await copy(items.map((i) => i.text).join("\n\n"));
         return "copied";
       },
       copyText: copy,
@@ -78,7 +83,17 @@ export async function connectHost(onInitial: (r: OpenResult) => void): Promise<H
     if (ctx?.theme != null) applyDocumentTheme(ctx.theme);
     if (ctx?.styles?.variables != null) applyHostStyleVariables(ctx.styles.variables);
   };
-  app.addEventListener("hostcontextchanged", applyContext);
+  const attached = new Map<string, Attachment>();
+  app.addEventListener("hostcontextchanged", (ctx) => {
+    applyContext(app.getHostContext());
+    // Keep our list in sync when the user removes a chip from the composer.
+    const update = ctx as Record<string, unknown>;
+    if (!Object.hasOwn(update, "openai/modelContext")) return;
+    const mc = update["openai/modelContext"] as { content?: { type: string; text?: string }[] } | null;
+    if (mc == null) return attached.clear();
+    const present = new Set((mc.content ?? []).map((c) => c.text));
+    for (const [k, a] of attached) if (!present.has(a.text)) attached.delete(k);
+  });
   // Register before connect so the initial tool result is not missed.
   app.ontoolresult = (result) => {
     const data = result.structuredContent as OpenResult | undefined;
@@ -117,12 +132,19 @@ export async function connectHost(onInitial: (r: OpenResult) => void): Promise<H
       if (reply?.isError) throw new Error("Codex declined to start the thread.");
       return "sent";
     },
-    async attachContext(text) {
+    async attach(items) {
       if (!ext.modelContext) {
-        await copy(text);
+        await copy(items.map((i) => i.text).join("\n\n"));
         return "copied";
       }
-      await ext.modelContext.update({ content: [{ type: "text", text }] });
+      for (const i of items) attached.set(i.key, i);
+      await ext.modelContext.update({
+        content: [...attached.values()].map((a) => ({
+          type: "text" as const,
+          text: a.text,
+          _meta: { "openai/title": a.title },
+        })),
+      });
       return "attached";
     },
     copyText: copy,

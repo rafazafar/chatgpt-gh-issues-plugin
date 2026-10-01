@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { Board, IssueDetail, Item, OpenResult, Page, ProjectSummary, SearchParams, Viewer } from "../shared/types.ts";
 import { DEFAULT_SEARCH } from "../shared/types.ts";
-import { connectHost, type Host } from "./host.ts";
+import { connectHost, type Attachment, type Host } from "./host.ts";
 import { buildContext, buildPrompt, defaultMode, modesFor, type Mode } from "./prompt.ts";
 import { Resizer } from "./Resizer.tsx";
 import { Detail } from "./Detail.tsx";
@@ -9,6 +9,11 @@ import { IssuesView } from "./IssuesView.tsx";
 import { ProjectsView } from "./ProjectsView.tsx";
 import { Empty, Segmented, Svg } from "./ui.tsx";
 import { load, save } from "./util.ts";
+
+const chipLabel = (i: Item) => {
+  const t = `${i.repo && i.number != null ? `${i.repo}#${i.number} ` : ""}${i.title}`;
+  return t.length > 64 ? t.slice(0, 63).trimEnd() + "…" : t;
+};
 
 type Tab = "issues" | "projects";
 type Toast = { msg: string; tone: "ok" | "err" } | null;
@@ -233,9 +238,9 @@ export function App() {
     setChecked(new Map());
   };
 
-  const attachText = async (text: string, what: string) => {
+  const attach = async (items: Attachment[], what: string) => {
     try {
-      const how = await hostRef.current!.attachContext(text);
+      const how = await hostRef.current!.attach(items);
       say(how === "attached" ? `Added ${what} to the composer — pick a model and send` : "Copied to clipboard");
     } catch (e) {
       say((e as Error).message, "err");
@@ -349,7 +354,7 @@ export function App() {
           <Detail
             item={focus} host={host} mode={mode}
             onMode={(m) => { setMode(m); save("mode", m); }}
-            onClose={() => setFocus(null)} onStart={startPrompt} onAttach={(t) => attachText(t, "the task")} onCopy={copy}
+            onClose={() => setFocus(null)} onStart={startPrompt} onAttach={(text, title) => attach([{ key: focus.id, title, text }], "the task")} onCopy={copy}
           />
         )}
       </main>
@@ -359,7 +364,7 @@ export function App() {
           <b>{checked.size} selected</b>
           <button class="ghost" onClick={() => setChecked(new Map())}>Clear</button>
           <span class="spacer" />
-          <button onClick={() => attachText(buildContext([...checked.values()]), `${checked.size} items`)}>Add all to composer</button>
+          <button onClick={() => attach([...checked.values()].map((i) => ({ key: i.id, title: chipLabel(i), text: buildContext([i]) })), `${checked.size} items`)}>Add all to composer</button>
           {confirming ? (
             <button class="primary danger" onClick={startMany}>Confirm: start {checked.size} threads</button>
           ) : (
