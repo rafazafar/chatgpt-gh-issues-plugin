@@ -21,3 +21,5 @@ export const search = (p: SearchParams) => gh.searchItems({ ...DEFAULT_SEARCH, .
 export const projects = (host?: string) => gh.listProjects(host);
 export const board = (projectId: string, host?: string) => gh.getBoard(projectId, host);
 export const issue = (repo: string, number: number, host?: string) => gh.getIssueDetail(repo, number, host);
+export const checkHost = (host: string) => gh.checkHost(host);
+export const suggestHosts = () => gh.suggestHosts().then((hosts) => ({ hosts }));

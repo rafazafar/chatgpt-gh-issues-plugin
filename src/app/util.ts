@@ -33,3 +33,6 @@ const GH_COLORS: Record<string, string> = {
 export const projectColor = (c: string | undefined) => GH_COLORS[c ?? "GRAY"] ?? GH_COLORS.GRAY;
 
 export const cx = (...a: (string | false | null | undefined)[]) => a.filter(Boolean).join(" ");
+
+/** "https://GHE.Corp.com/x" → "ghe.corp.com" (mirrors the server's normalizeHost). */
+export const normHost = (h: string) => h.trim().replace(/^https?:\/\//i, "").replace(/\/.*$/, "").toLowerCase() || "github.com";

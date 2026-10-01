@@ -42,6 +42,17 @@ export type Page<T> = {
 
 export type HostsInfo = { hosts: string[]; default: string };
 
+/** Outcome of probing a GitHub host: drives the "Connect a host" guidance. */
+export type HostCheck = {
+  host: string;
+  state: "ready" | "no_token" | "bad_token" | "unreachable" | "not_github";
+  /** Signed-in account (state = ready). */
+  login?: string;
+  /** Whether the GitHub CLI is installed at all (changes the first setup step). */
+  ghInstalled: boolean;
+  message?: string;
+};
+
 export type SearchParams = {
   /** GitHub instance, e.g. "ghe.corp.com". Omitted = the machine's default (github.com). */
   host?: string;

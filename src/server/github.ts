@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 import type {
   Board,
   BoardField,
+  HostCheck,
   HostsInfo,
   IssueDetail,
   Item,
@@ -104,6 +105,24 @@ export function ghCandidates(): string[] {
     "/home/linuxbrew/.linuxbrew/bin/gh",
     ...(home ? [`${home}/.local/bin/gh`] : []),
   ];
+}
+
+let ghPath: Promise<string | null> | undefined;
+
+/** Locate the GitHub CLI once; null when it isn't installed. */
+export function findGh(): Promise<string | null> {
+  ghPath ??= (async () => {
+    for (const bin of ghCandidates()) {
+      try {
+        await run(bin, ["--version"], { timeout: 5_000 });
+        return bin;
+      } catch {
+        /* not here, try the next location */
+      }
+    }
+    return null;
+  })();
+  return ghPath;
 }
 
 /**
@@ -559,4 +578,65 @@ export async function getIssueDetail(repo: string, number: number, hostArg?: str
       createdAt: c.createdAt,
     })),
   };
+}
+
+// ------------------------------------------------------- connecting a host
+
+/**
+ * Probe a GitHub host without needing credentials, then with them, and say what's wrong in terms
+ * the UI can act on. SSH keys only authenticate git; the API always needs a token.
+ */
+export async function checkHost(hostArg: string): Promise<HostCheck> {
+  const host = normalizeHost(hostArg);
+  const ghInstalled = (await findGh()) !== null;
+  const out = (state: HostCheck["state"], extra: Partial<HostCheck> = {}): HostCheck => ({ host, state, ghInstalled, ...extra });
+
+  // 1. Is there a GitHub GraphQL API here at all (and can we reach it, e.g. over the VPN)?
+  try {
+    const res = await fetch(graphqlUrl(host), {
+      method: "POST",
+      headers: { "content-type": "application/json", "user-agent": "codex-issue-launchpad" },
+      body: JSON.stringify({ query: "{ __typename }" }),
+      signal: AbortSignal.timeout(6_000),
+    });
+    // An unauthenticated GitHub API answers 401 with a JSON body; anything else isn't GitHub.
+    const looksLikeGitHub = res.status === 401 || res.headers.get("x-github-request-id") !== null || res.headers.get("x-github-enterprise-version") !== null;
+    if (!looksLikeGitHub) return out("not_github", { message: `${host} doesn't look like a GitHub server (no GraphQL API at ${graphqlUrl(host)}).` });
+  } catch (e) {
+    return out("unreachable", { message: `Couldn't reach ${host}: ${(e as Error).message}` });
+  }
+
+  // 2. Do we have a working credential for it?
+  try {
+    const viewer = await getViewer(host);
+    return out("ready", { login: viewer.login });
+  } catch (e) {
+    if (e instanceof GitHubError && (e.code === "no_token" || e.code === "bad_token")) return out(e.code, { message: e.message });
+    if (e instanceof GitHubError && e.code === "network") return out("unreachable", { message: e.message });
+    throw e;
+  }
+}
+
+/** Hostnames mentioned in an ssh_config file (HostName wins over the Host alias). Read-only hints. */
+export function parseSshConfigHosts(text: string): string[] {
+  const out = new Set<string>();
+  for (const raw of text.split("\n")) {
+    const m = /^\s*(Host|HostName)\s+(.+?)\s*$/i.exec(raw.replace(/#.*$/, ""));
+    if (!m) continue;
+    for (const name of m[2].split(/\s+/)) {
+      if (/[*?!]/.test(name) || !name.includes(".") || /^\d+(\.\d+){3}$/.test(name)) continue; // wildcards, bare aliases, IPs
+      out.add(normalizeHost(name));
+    }
+  }
+  return [...out];
+}
+
+/** Opt-in helper for "Detect from my SSH config": names only, never keys or paths. */
+export async function suggestHosts(path = `${process.env.HOME ?? ""}/.ssh/config`): Promise<string[]> {
+  try {
+    const known = new Set((await listHosts()).hosts);
+    return parseSshConfigHosts(await readFile(path, "utf8")).filter((h) => h !== DEFAULT_HOST && !known.has(h) && !/gitlab|bitbucket|dev\.azure/.test(h));
+  } catch {
+    return [];
+  }
 }

@@ -127,3 +127,83 @@ test("an older server without project fields still lists issues (retries without
   assert.match(queries[0], /projectItems/);
   assert.doesNotMatch(queries[1], /projectItems/);
 });
+
+// ------------------------------------------------------ connecting a host (SSH-only users)
+import { checkHost, parseSshConfigHosts, suggestHosts } from "./github.ts";
+
+test("ssh config: pulls real hostnames, skips wildcards, IPs and bare aliases", () => {
+  const cfg = `
+Host *
+  ServerAliveInterval 30
+Host work
+  HostName github.axa-corp.co.jp   # AXA
+  User git
+Host gh-personal github.com
+  IdentityFile ~/.ssh/id_ed25519
+Host 10.1.2.3 build-box
+Host !internal *.corp
+`;
+  assert.deepEqual(parseSshConfigHosts(cfg).sort(), ["github.axa-corp.co.jp", "github.com"]);
+});
+
+test("suggestHosts excludes github.com, other forges and hosts already signed in", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "ssh-"));
+  const file = path.join(dir, "config");
+  await writeFile(file, "Host a\n HostName github.com\nHost b\n HostName gitlab.com\nHost c\n HostName git.example.co.jp\n");
+  await withEnv({ GH_CONFIG_DIR: dir }, async () => {
+    assert.deepEqual(await suggestHosts(file), ["git.example.co.jp"]);
+  });
+});
+
+const stubFetch = (handler: (body: string) => Response | Promise<Response>) => {
+  const real = globalThis.fetch;
+  globalThis.fetch = (async (_u: string, init?: RequestInit) => handler(String(init?.body ?? ""))) as typeof fetch;
+  return () => (globalThis.fetch = real);
+};
+const unauth = () => new Response(JSON.stringify({ message: "Requires authentication" }), { status: 401 });
+const viewerReply = () => reply({ data: { viewer: { login: "taro", name: null, avatarUrl: "", organizations: { nodes: [] } } } });
+
+test("checkHost: unreachable host (VPN down) is reported as such, before any login advice", async () => {
+  const restore = stubFetch(() => { throw new TypeError("getaddrinfo ENOTFOUND ghe.axa.example"); });
+  try {
+    const r = await checkHost("ghe.axa.example");
+    assert.equal(r.state, "unreachable");
+    assert.match(r.message ?? "", /ENOTFOUND/);
+  } finally { restore(); }
+});
+
+test("checkHost: a web server that isn't GitHub is not_github", async () => {
+  const restore = stubFetch(() => new Response("<html>Not found</html>", { status: 404 }));
+  try { assert.equal((await checkHost("intranet.example")).state, "not_github"); } finally { restore(); }
+});
+
+test("checkHost: reachable GitHub but no login → no_token with host-specific advice", async () => {
+  const restore = stubFetch(unauth);
+  try {
+    await withEnv({}, async () => {
+      const r = await checkHost("ghe.axa.example");
+      assert.equal(r.state, "no_token");
+      assert.match(r.message ?? "", /gh auth login --hostname ghe\.axa\.example/);
+    });
+  } finally { restore(); }
+});
+
+test("checkHost: working credential → ready with the account name", async () => {
+  const restore = stubFetch((body) => (body.includes("__typename }") ? unauth() : viewerReply()));
+  try {
+    await withEnv({ GH_ENTERPRISE_TOKEN: "t" }, async () => {
+      const r = await checkHost("ghe.axa.example");
+      assert.equal(r.state, "ready");
+      assert.equal(r.login, "taro");
+    });
+  } finally { restore(); }
+});
+
+test("checkHost: rejected credential → bad_token", async () => {
+  const restore = stubFetch(unauth); // probe 401 (fine) and the authenticated call 401 (rejected)
+  try {
+    await withEnv({ GH_ENTERPRISE_TOKEN: "expired" }, async () => {
+      assert.equal((await checkHost("ghe.axa.example")).state, "bad_token");
+    });
+  } finally { restore(); }
+});

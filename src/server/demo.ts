@@ -1,5 +1,6 @@
 /** Fake data for README screenshots and UI work: `DEMO=1 npm run dev`. No network, no real repos. */
-import type { Board, IssueDetail, Item, Page, ProjectSummary, SearchParams, Viewer } from "../shared/types.ts";
+import { GitHubError } from "./github.ts";
+import type { Board, HostCheck, IssueDetail, Item, Page, ProjectSummary, SearchParams, Viewer } from "../shared/types.ts";
 
 const avatar = (letter: string, hue: number) =>
   "data:image/svg+xml," +
@@ -65,8 +66,15 @@ export const hosts = async () => {
   const list = (process.env.DEMO_HOSTS ?? "github.com").split(",");
   return { hosts: list, default: list[0] };
 };
+// Demo hosts: names containing "vpn" are unreachable, "ready" are connected, "old" have a bad token; others need sign-in.
+export const checkHost = async (host: string): Promise<HostCheck> => {
+  const state = /vpn/.test(host) ? "unreachable" : /ready/.test(host) ? "ready" : /old/.test(host) ? "bad_token" : "no_token";
+  return { host, state, ghInstalled: !/nogh/.test(host), login: state === "ready" ? "ada" : undefined, message: state === "unreachable" ? `Couldn't reach ${host}: fetch failed` : undefined };
+};
+export const suggestHosts = async () => ({ hosts: ["github.example-corp.co.jp", "git.example.com"] });
 export const viewer = async (): Promise<Viewer> => ({ login: "ada", name: "Ada", avatarUrl: ada.avatarUrl, orgs: ["acme"] });
 export const search = async (p: SearchParams) => {
+  if (/new\./.test(p.host ?? "")) throw new GitHubError("no_token", `The GitHub CLI isn't logged in to ${p.host}.`);
   const needle = (p.text ?? "").toLowerCase();
   return page(items.filter((i) => (!p.repo || i.repo === p.repo) && (!needle || i.title.toLowerCase().includes(needle)) && (!p.labels?.length || p.labels.every((l) => i.labels.some((x) => x.name === l)))));
 };

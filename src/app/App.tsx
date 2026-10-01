@@ -4,12 +4,13 @@ import { DEFAULT_SEARCH } from "../shared/types.ts";
 import { connectHost, type Attachment, type Host } from "./host.ts";
 import { buildContext, buildPrompt, defaultMode, modesFor, type Mode } from "./prompt.ts";
 import { Resizer } from "./Resizer.tsx";
+import { ConnectDialog, ConnectPanel, HostMenu } from "./Connect.tsx";
 import { Detail } from "./Detail.tsx";
 import { IssuesView } from "./IssuesView.tsx";
 import { ProjectsView } from "./ProjectsView.tsx";
-import { Empty, Segmented, Svg } from "./ui.tsx";
+import { Segmented, Svg } from "./ui.tsx";
 import { cacheGet, cacheSet, fetchDetail, searchKey } from "./cache.ts";
-import { cx, load, save } from "./util.ts";
+import { cx, load, normHost, save } from "./util.ts";
 
 const chipLabel = (i: Item) => {
   const t = `${i.repo && i.number != null ? `${i.repo}#${i.number} ` : ""}${i.title}`;
@@ -55,6 +56,9 @@ export function App() {
   const [hostInfo, setHostInfo] = useState<HostsInfo | null>(null);
   const effHost = params.host ?? hostInfo?.default;
   const hk = () => paramsRef.current.host ?? "";
+  // Hosts the user added by hand (e.g. a company GitHub they only use over SSH for git).
+  const [customHosts, setCustomHosts] = useState<string[]>(() => load<string[]>("customHosts", []));
+  const [connectOpen, setConnectOpen] = useState(false);
 
   // projects
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
@@ -167,6 +171,28 @@ export function App() {
       .catch(() => undefined);
   }, [host]);
 
+  const api = useCallback(<T,>(name: string, args: Record<string, unknown> = {}) => hostRef.current!.callTool<T>(name, args), []);
+
+  // Retry loading after the user fixed their sign-in.
+  const reload = () => {
+    setFatal(null);
+    loadViewer();
+    void runSearch(paramsRef.current);
+    if (tab === "projects") void loadProjects();
+  };
+
+  const useHost = (h: string) => {
+    const n = normHost(h);
+    if (n !== "github.com" && !hostInfo?.hosts.includes(n)) {
+      const next = [...new Set([...customHosts, n])];
+      setCustomHosts(next);
+      save("customHosts", next);
+    }
+    setConnectOpen(false);
+    if (n !== (paramsRef.current.host ?? hostInfo?.default)) switchHost(n);
+    else reload();
+  };
+
   const switchHost = (next: string) => {
     const p: SearchParams = { ...DEFAULT_SEARCH, ...paramsRef.current, host: next, after: null, repo: undefined, labels: undefined, text: undefined };
     paramsRef.current = p;
@@ -183,6 +209,7 @@ export function App() {
     setChecked(new Map());
     setViewer(null);
     setLoadError(null);
+    setFatal(null);
     loadViewer();
     void runSearch(p);
     if (tab === "projects") void loadProjects();
@@ -406,39 +433,27 @@ export function App() {
   );
 
   // ---- render
-  if (fatal)
-    return (
-      <Fatal
-        error={fatal}
-        onRetry={() => {
-          setFatal(null);
-          if (host) {
-            loadViewer();
-            void runSearch(paramsRef.current);
-          }
-        }}
-      />
-    );
-
   return (
     <div class={`app ${focus ? "has-detail" : ""} ${host?.mode === "codex" ? "host-codex" : ""}`} style={{ "--detail-w": `${detailW}px` }}>
       <header class="topbar">
         <div class="brand"><Svg d="play" size={13} /> Issue Launchpad</div>
         <Segmented label="View" value={tab} onChange={changeTab} options={[{ id: "issues", label: "Issues" }, { id: "projects", label: "Projects" }]} />
         <div class="spacer" />
-        {tab === "issues" && (
+        {tab === "issues" && !fatal && (
           <div class="search">
             <Svg d="search" size={13} />
             <input id="search" placeholder="Search · try label:bug no:assignee   ( / )" value={text} onInput={(e) => setText((e.target as HTMLInputElement).value)} />
           </div>
         )}
-        {hostInfo && hostInfo.hosts.length > 1 ? (
-          <select class="host-select" aria-label="GitHub instance" value={effHost} onChange={(e) => switchHost((e.target as HTMLSelectElement).value)}>
-            {hostInfo.hosts.map((h) => <option key={h} value={h}>{h}</option>)}
-          </select>
-        ) : effHost && effHost !== "github.com" ? (
-          <span class="host-badge" title="GitHub Enterprise host">{effHost}</span>
-        ) : null}
+        {host && (
+          <HostMenu
+            current={effHost ?? "github.com"}
+            warn={!!fatal}
+            hosts={[...(hostInfo?.hosts ?? ["github.com"]), ...customHosts]}
+            onSwitch={switchHost}
+            onConnect={() => setConnectOpen(true)}
+          />
+        )}
         <button class={cx("icon-btn", busy > 0 && "spin")} title={busy > 0 ? "Updating…" : "Refresh"} aria-label="Refresh" onClick={refresh}><Svg d="refresh" /></button>
         {viewer && (
           <div class="viewer" title={viewer.orgs.length ? `Orgs: ${viewer.orgs.join(", ")}` : viewer.login}>
@@ -450,7 +465,11 @@ export function App() {
       </header>
 
       <main>
-        {tab === "issues" ? (
+        {fatal && host ? (
+          <section class="view fatal">
+            <ConnectPanel key={effHost} host={effHost ?? "github.com"} api={api} app={host} onReady={reload} autoContinue />
+          </section>
+        ) : tab === "issues" ? (
           <IssuesView
             params={params} onParams={changeParams} page={page} refreshing={refreshing} loadingMore={loadingMore}
             dim={refreshing && pageKey !== searchKey(params)} staleAt={staleAt} error={page ? null : loadError}
@@ -496,22 +515,9 @@ export function App() {
         </div>
       )}
 
-      {toast && <div class={`toast ${toast.tone}`} role="status">{toast.msg}</div>}
-    </div>
-  );
-}
+      {connectOpen && host && <ConnectDialog api={api} app={host} onUse={useHost} onClose={() => setConnectOpen(false)} />}
 
-function Fatal({ error, onRetry }: { error: NonNullable<Fatal>; onRetry: () => void }) {
-  const title = error.code === "no_token" ? "Connect GitHub" : error.code === "bad_token" ? "GitHub rejected the token" : error.code === "network" ? "Can't reach GitHub" : "Something went wrong";
-  return (
-    <div class="fatal">
-      <Empty title={title} icon={<Svg d="issue" size={32} />}>
-        {error.message}
-      </Empty>
-      {error.code === "no_token" && (
-        <pre class="prompt-preview">{`gh auth login\ngh auth refresh -s project   # for Projects boards`}</pre>
-      )}
-      <button class="primary" onClick={onRetry}>Try again</button>
+      {toast && <div class={`toast ${toast.tone}`} role="status">{toast.msg}</div>}
     </div>
   );
 }

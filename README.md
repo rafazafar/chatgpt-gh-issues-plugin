@@ -44,6 +44,8 @@ on any of them in one click, pre-loaded with the issue, the repo and a plan-firs
   instantly and update in place (a thin progress bar and spinner show activity), filters and the board keep
   the old view on screen until fresh data lands, and hovering an issue pre-loads its details so opening
   it is instant.
+- **Any GitHub, guided.** github.com, GitHub Enterprise Server and ghe.com, switched from a header menu. Hosts
+  that aren't signed in get a step-by-step connect guide (see below) instead of an error.
 - **Batch.** Tick several items to start one thread each, or attach them all to the composer.
 - **Resizable detail panel** (drag the edge, double-click to reset, arrow keys to nudge; width is remembered).
 - **Keyboard:** `j`/`k` move · `x` select · `/` search · `Esc` close.
@@ -98,6 +100,35 @@ it available to the app as `GITHUB_TOKEN`. Apps launched from the Dock don't see
 | `project` or `read:project` | The Projects tab (Issues works without it) |
 
 If your orgs enforce SAML SSO, authorise the token for them (GitHub → Settings → Tokens → Configure SSO).
+
+### Company GitHub, but you only use git + SSH?
+
+Very common: you `git clone git@github.mycompany.com:team/repo.git` all day and never signed the GitHub CLI in
+to that host. **An SSH key can't read issues**: it only authenticates git (clone/push), while issues and Projects
+come from GitHub's web API, which needs a separate sign-in token. The two don't conflict, so **your SSH setup
+stays exactly as it is.**
+
+The plugin walks you through it, with nothing to configure and no token pasted anywhere:
+
+1. Click the host name in the header (top right) → **Connect another GitHub host…**
+   (or just open the plugin: if a host isn't signed in you'll land on the same guide).
+2. Type the host, i.e. the part after `git@` in your repo URLs, or use **Detect from my SSH config**
+   (reads hostnames only, only when you click it).
+3. It checks the host and tells you what's missing:
+   - **Can't reach it** → "connect to the company VPN", then it re-checks.
+   - **Not signed in** → shows the one command to run, with a copy button:
+     ```sh
+     gh auth login --hostname github.mycompany.com --git-protocol ssh --skip-ssh-key --web --clipboard --scopes project
+     ```
+     `--git-protocol ssh --skip-ssh-key` keeps git on SSH and leaves your keys untouched. It opens your browser to
+     sign in with your company account.
+   - **Browser sign-in blocked?** An expandable alternative uses a personal access token.
+4. When you come back to the window it re-checks by itself and switches to the host. The host is remembered.
+
+![Connect a GitHub host](docs/screenshots/connect.png)
+
+If your organisation blocks both the GitHub CLI app and personal access tokens, API access isn't available to you
+and no tool can show issues; ask your GitHub admin to allow one of them.
 
 ### GitHub Enterprise
 
@@ -180,6 +211,7 @@ Codex refreshes its cached copy.
 
 - **No sidebar entry:** run `codex plugin list` and check it says `installed, enabled`, then fully
   quit and reopen the app.
+- **"Sign in to <host>" screen:** follow the on-screen command, or see *Company GitHub, but you only use git + SSH?*.
 - **"No GitHub credentials found" / "gh isn't logged in":** run `gh auth login`, or provide `GITHUB_TOKEN`
   (see *GitHub access* above), then click refresh in the plugin.
 - **Projects tab is empty:** run `gh auth refresh -s project` (add `--hostname <host>` for Enterprise). Org projects may also need SSO authorisation

@@ -32044,6 +32044,20 @@ function ghCandidates() {
     ...home ? [`${home}/.local/bin/gh`] : []
   ];
 }
+var ghPath;
+function findGh() {
+  ghPath ??= (async () => {
+    for (const bin of ghCandidates()) {
+      try {
+        await run(bin, ["--version"], { timeout: 5e3 });
+        return bin;
+      } catch {
+      }
+    }
+    return null;
+  })();
+  return ghPath;
+}
 async function getToken(hostArg) {
   const host = normalizeHost(hostArg);
   const env = host === DEFAULT_HOST ? process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN : process.env.GH_ENTERPRISE_TOKEN ?? process.env.GITHUB_ENTERPRISE_TOKEN;
@@ -32418,6 +32432,51 @@ async function getIssueDetail(repo, number4, hostArg) {
     }))
   };
 }
+async function checkHost(hostArg) {
+  const host = normalizeHost(hostArg);
+  const ghInstalled = await findGh() !== null;
+  const out = (state, extra = {}) => ({ host, state, ghInstalled, ...extra });
+  try {
+    const res = await fetch(graphqlUrl(host), {
+      method: "POST",
+      headers: { "content-type": "application/json", "user-agent": "codex-issue-launchpad" },
+      body: JSON.stringify({ query: "{ __typename }" }),
+      signal: AbortSignal.timeout(6e3)
+    });
+    const looksLikeGitHub = res.status === 401 || res.headers.get("x-github-request-id") !== null || res.headers.get("x-github-enterprise-version") !== null;
+    if (!looksLikeGitHub) return out("not_github", { message: `${host} doesn't look like a GitHub server (no GraphQL API at ${graphqlUrl(host)}).` });
+  } catch (e) {
+    return out("unreachable", { message: `Couldn't reach ${host}: ${e.message}` });
+  }
+  try {
+    const viewer2 = await getViewer(host);
+    return out("ready", { login: viewer2.login });
+  } catch (e) {
+    if (e instanceof GitHubError && (e.code === "no_token" || e.code === "bad_token")) return out(e.code, { message: e.message });
+    if (e instanceof GitHubError && e.code === "network") return out("unreachable", { message: e.message });
+    throw e;
+  }
+}
+function parseSshConfigHosts(text) {
+  const out = /* @__PURE__ */ new Set();
+  for (const raw of text.split("\n")) {
+    const m2 = /^\s*(Host|HostName)\s+(.+?)\s*$/i.exec(raw.replace(/#.*$/, ""));
+    if (!m2) continue;
+    for (const name of m2[2].split(/\s+/)) {
+      if (/[*?!]/.test(name) || !name.includes(".") || /^\d+(\.\d+){3}$/.test(name)) continue;
+      out.add(normalizeHost(name));
+    }
+  }
+  return [...out];
+}
+async function suggestHosts(path = `${process.env.HOME ?? ""}/.ssh/config`) {
+  try {
+    const known = new Set((await listHosts()).hosts);
+    return parseSshConfigHosts(await readFile(path, "utf8")).filter((h2) => h2 !== DEFAULT_HOST && !known.has(h2) && !/gitlab|bitbucket|dev\.azure/.test(h2));
+  } catch {
+    return [];
+  }
+}
 
 // src/shared/types.ts
 var DEFAULT_SEARCH = {
@@ -32439,6 +32498,8 @@ var search = (p2) => searchItems({ ...DEFAULT_SEARCH, ...p2 });
 var projects = (host) => listProjects(host);
 var board = (projectId, host) => getBoard(projectId, host);
 var issue2 = (repo, number4, host) => getIssueDetail(repo, number4, host);
+var checkHost2 = (host) => checkHost(host);
+var suggestHosts2 = () => suggestHosts().then((hosts2) => ({ hosts: hosts2 }));
 
 // src/server/register.ts
 var UI_URI = "ui://issue-launchpad/app-v1";
@@ -32535,6 +32596,30 @@ function registerLaunchpad(server2, html2) {
   );
   K3(
     server2,
+    "launchpad.checkHost",
+    {
+      title: "Check a GitHub host",
+      description: "Check whether a GitHub host is reachable and signed in, and what to do if not.",
+      inputSchema: { host: external_exports.string() },
+      annotations: readonly2,
+      _meta: { ui: { resourceUri: UI_URI, visibility: ["app"] } }
+    },
+    guard(({ host }) => checkHost2(host))
+  );
+  K3(
+    server2,
+    "launchpad.suggestHosts",
+    {
+      title: "Suggest GitHub hosts",
+      description: "Hostnames found in the user's SSH config (names only), offered as suggestions when connecting a host.",
+      inputSchema: {},
+      annotations: readonly2,
+      _meta: { ui: { resourceUri: UI_URI, visibility: ["app"] } }
+    },
+    guard(suggestHosts2)
+  );
+  K3(
+    server2,
     "launchpad.viewer",
     {
       title: "Current GitHub user",
@@ -32616,7 +32701,7 @@ var html = await readFile2(new URL("./app.html", import.meta.url), "utf8");
 var server = new McpServer({
   name: "issue-launchpad",
   title: "Issue Launchpad",
-  version: "0.1.5",
+  version: "0.1.6",
   icons: [{ src: "data:image/svg+xml," + encodeURIComponent(iconSvg), mimeType: "image/svg+xml" }]
 });
 registerLaunchpad(server, html);

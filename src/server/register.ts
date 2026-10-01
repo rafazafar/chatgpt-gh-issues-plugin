@@ -121,6 +121,32 @@ export function registerLaunchpad(server: McpServer, html: string) {
 
   registerAppTool(
     server,
+    "launchpad.checkHost",
+    {
+      title: "Check a GitHub host",
+      description: "Check whether a GitHub host is reachable and signed in, and what to do if not.",
+      inputSchema: { host: z.string() },
+      annotations: readonly,
+      _meta: { ui: { resourceUri: UI_URI, visibility: ["app"] } },
+    },
+    guard(({ host }: { host: string }) => h.checkHost(host)),
+  );
+
+  registerAppTool(
+    server,
+    "launchpad.suggestHosts",
+    {
+      title: "Suggest GitHub hosts",
+      description: "Hostnames found in the user's SSH config (names only), offered as suggestions when connecting a host.",
+      inputSchema: {},
+      annotations: readonly,
+      _meta: { ui: { resourceUri: UI_URI, visibility: ["app"] } },
+    },
+    guard(h.suggestHosts),
+  );
+
+  registerAppTool(
+    server,
     "launchpad.viewer",
     {
       title: "Current GitHub user",
