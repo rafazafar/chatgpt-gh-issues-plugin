@@ -24,7 +24,7 @@
       "@Issue Launchpad show my open issues."
     ]
   },
-  "repository": "https://github.com/rafazafar/chatgpt-gh-issues-plugin",
-  "homepage": "https://github.com/rafazafar/chatgpt-gh-issues-plugin#readme",
+  "repository": "https://github.com/rafazafar/codex-gh-issues-plugin",
+  "homepage": "https://github.com/rafazafar/codex-gh-issues-plugin#readme",
   "license": "Apache-2.0"
 }

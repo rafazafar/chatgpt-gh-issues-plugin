@@ -58,8 +58,8 @@ on any of them in one click, pre-loaded with the issue, the repo and a plan-firs
 Requires the Codex desktop app and CLI, Node.js 22+, and a GitHub login (see [GitHub access](#github-access-one-time-setup)).
 
 ```sh
-codex plugin marketplace add rafazafar/chatgpt-gh-issues-plugin
-codex plugin add issue-launchpad@chatgpt-gh-issues-plugin
+codex plugin marketplace add rafazafar/codex-gh-issues-plugin
+codex plugin add issue-launchpad@codex-gh-issues-plugin
 ```
 
 Fully quit and reopen the app, then choose **Issue Launchpad** in the sidebar.
@@ -82,8 +82,8 @@ remove first). Check with `codex plugin list`; the VERSION column should show th
 Uninstall:
 
 ```sh
-codex plugin remove issue-launchpad@chatgpt-gh-issues-plugin
-codex plugin marketplace remove chatgpt-gh-issues-plugin
+codex plugin remove issue-launchpad@codex-gh-issues-plugin
+codex plugin marketplace remove codex-gh-issues-plugin
 ```
 
 ### GitHub access (one-time setup)
@@ -233,7 +233,7 @@ DEMO=1 LATENCY=3000 npm run dev   # simulate a slow GitHub to see the loading st
 
 ```sh
 codex plugin marketplace add "$PWD"
-codex plugin add issue-launchpad@chatgpt-gh-issues-plugin
+codex plugin add issue-launchpad@codex-gh-issues-plugin
 ```
 
 Bump `version` in `.codex-plugin/plugin.json` when you change the plugin, then remove and re-add it so

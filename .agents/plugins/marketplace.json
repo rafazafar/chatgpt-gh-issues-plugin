@@ -1,5 +1,5 @@
 {
-  "name": "chatgpt-gh-issues-plugin",
+  "name": "codex-gh-issues-plugin",
   "interface": { "displayName": "GitHub Issues Launchpad" },
   "plugins": [
     {

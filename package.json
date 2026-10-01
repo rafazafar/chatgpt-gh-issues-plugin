@@ -29,7 +29,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/rafazafar/chatgpt-gh-issues-plugin.git"
+    "url": "git+https://github.com/rafazafar/codex-gh-issues-plugin.git"
   },
-  "homepage": "https://github.com/rafazafar/chatgpt-gh-issues-plugin#readme"
+  "homepage": "https://github.com/rafazafar/codex-gh-issues-plugin#readme"
 }
