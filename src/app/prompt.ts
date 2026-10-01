@@ -44,10 +44,13 @@ export type PromptInput = {
   item: Item | IssueDetail;
   mode: Mode;
   notes?: string;
+  /** GitHub instance; only mentioned for non-github.com hosts. */
+  host?: string;
 };
 
 /** The thread opener Codex receives. Plain text so it's readable and editable in the composer. */
-export function buildPrompt({ item, mode, notes }: PromptInput): string {
+export function buildPrompt({ item, mode, notes, host }: PromptInput): string {
+  const enterprise = host && host !== "github.com" ? host : null;
   const detail = item as Partial<IssueDetail>;
   const noun = item.kind === "pr" ? "pull request" : item.kind === "draft" ? "draft project card" : "issue";
   const ref = item.repo && item.number != null ? `${item.repo}#${item.number}` : item.title;
@@ -55,6 +58,7 @@ export function buildPrompt({ item, mode, notes }: PromptInput): string {
 
   lines.push(`${mode === "review" ? "Review" : "Work on"} GitHub ${noun} ${ref}: ${item.title}`);
   if (item.url) lines.push(item.url);
+  if (enterprise) lines.push(`GitHub host: ${enterprise} (GitHub Enterprise; set GH_HOST=${enterprise} when using the gh CLI)`);
   lines.push("");
   lines.push(`Mode: ${MODES.find((m) => m.id === mode)!.label}`);
   INSTRUCTIONS[mode].forEach((s, i) => lines.push(`${i + 1}. ${s}`));
@@ -75,7 +79,7 @@ export function buildPrompt({ item, mode, notes }: PromptInput): string {
     lines.push(
       "",
       `Repository: ${item.repo}. If the current workspace is not a checkout of it, find or clone it first.`,
-      `Use the launchpad.issue tool (repo: "${item.repo}", number: ${item.number}) for the full text and comments.`,
+      `Use the launchpad.issue tool (repo: "${item.repo}", number: ${item.number}${enterprise ? `, host: "${enterprise}"` : ""}) for the full text and comments.`,
     );
   }
 

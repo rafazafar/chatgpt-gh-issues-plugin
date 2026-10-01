@@ -11,11 +11,12 @@ const h = process.env.DEMO ? { ...demo, errorOf: real.errorOf } : real;
 const port = Number(process.env.PORT ?? 5199);
 const tools = {
   "launchpad.open": () => h.open(),
-  "launchpad.viewer": () => h.viewer(),
+  "launchpad.hosts": () => h.hosts(),
+  "launchpad.viewer": (a) => h.viewer(a.host),
   "launchpad.search": (a) => h.search(a),
-  "launchpad.projects": () => h.projects(),
-  "launchpad.board": (a) => h.board(a.projectId),
-  "launchpad.issue": (a) => h.issue(a.repo, a.number),
+  "launchpad.projects": (a) => h.projects(a.host),
+  "launchpad.board": (a) => h.board(a.projectId, a.host),
+  "launchpad.issue": (a) => h.issue(a.repo, a.number, a.host),
 };
 
 createServer(async (req, res) => {

@@ -1,8 +1,10 @@
 import { execFile } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import type {
   Board,
   BoardField,
+  HostsInfo,
   IssueDetail,
   Item,
   Page,
@@ -25,7 +27,68 @@ export class GitHubError extends Error {
 
 // ---------------------------------------------------------------- auth
 
-let cachedToken: { value: string; at: number } | null = null;
+// ---------------------------------------------------------------- hosts
+
+export const DEFAULT_HOST = "github.com";
+
+/** "https://GHE.Corp.com/" → "ghe.corp.com"; empty → github.com. */
+export function normalizeHost(h?: string | null): string {
+  const v = (h ?? "").trim().replace(/^https?:\/\//i, "").replace(/\/.*$/, "").toLowerCase();
+  return v || DEFAULT_HOST;
+}
+
+/**
+ * GraphQL endpoint per flavour of GitHub:
+ *   github.com            → https://api.github.com/graphql
+ *   *.ghe.com (data res.) → https://api.<host>/graphql
+ *   GitHub Enterprise Server → https://<host>/api/graphql
+ */
+export function graphqlUrl(host: string): string {
+  if (host === DEFAULT_HOST) return "https://api.github.com/graphql";
+  if (host.endsWith(".ghe.com")) return `https://api.${host}/graphql`;
+  return `https://${host}/api/graphql`;
+}
+
+/** Hostnames are the unindented top-level keys of gh's hosts.yml. */
+export function parseHostsYml(text: string): string[] {
+  return [...text.matchAll(/^([A-Za-z0-9][A-Za-z0-9.-]*):\s*$/gm)].map((m) => normalizeHost(m[1]));
+}
+
+function ghConfigDirs(): string[] {
+  const e = process.env;
+  const home = e.HOME ?? e.USERPROFILE ?? "";
+  return [
+    e.GH_CONFIG_DIR,
+    e.XDG_CONFIG_HOME && `${e.XDG_CONFIG_HOME}/gh`,
+    home && `${home}/.config/gh`,
+    e.APPDATA && `${e.APPDATA}/GitHub CLI`,
+  ].filter(Boolean) as string[];
+}
+
+/** Which GitHub instances this machine is signed in to, and which one to start on. */
+export async function listHosts(): Promise<HostsInfo> {
+  const found = new Set<string>();
+  for (const dir of ghConfigDirs()) {
+    try {
+      parseHostsYml(await readFile(`${dir}/hosts.yml`, "utf8")).forEach((h) => found.add(h));
+      break;
+    } catch {
+      /* try the next location */
+    }
+  }
+  if (process.env.GITHUB_TOKEN || process.env.GH_TOKEN) found.add(DEFAULT_HOST);
+  if (process.env.GH_ENTERPRISE_TOKEN || process.env.GITHUB_ENTERPRISE_TOKEN) found.add(normalizeHost(process.env.GH_HOST));
+  if (process.env.GH_HOST) found.add(normalizeHost(process.env.GH_HOST));
+  const hosts = [...found];
+  if (!hosts.length) hosts.push(DEFAULT_HOST);
+  // Same rule as the gh CLI: GH_HOST wins; otherwise github.com if signed in, else the first host.
+  const preferred = process.env.GH_HOST ? normalizeHost(process.env.GH_HOST) : undefined;
+  return { hosts, default: preferred && hosts.includes(preferred) ? preferred : hosts.includes(DEFAULT_HOST) ? DEFAULT_HOST : hosts[0] };
+}
+
+// ---------------------------------------------------------------- auth
+
+const tokenCache = new Map<string, { value: string; at: number }>();
 
 /**
  * Desktop apps often start the plugin with a minimal PATH (no Homebrew), so `gh` is also
@@ -44,37 +107,43 @@ export function ghCandidates(): string[] {
 }
 
 /**
- * Resolve a token without ever asking the user to paste one: env vars first,
- * then the GitHub CLI session they already have on this machine.
+ * Resolve a token for one host without ever asking the user to paste one: environment variables
+ * first (the same ones gh honours), then the GitHub CLI session for that exact host.
  */
-export async function getToken(): Promise<string> {
-  const env = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
+export async function getToken(hostArg?: string): Promise<string> {
+  const host = normalizeHost(hostArg);
+  const env =
+    host === DEFAULT_HOST
+      ? (process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN)
+      : (process.env.GH_ENTERPRISE_TOKEN ?? process.env.GITHUB_ENTERPRISE_TOKEN);
   if (env) return env;
-  if (cachedToken && Date.now() - cachedToken.at < 5 * 60_000)
-    return cachedToken.value;
+  const cached = tokenCache.get(host);
+  if (cached && Date.now() - cached.at < 5 * 60_000) return cached.value;
   let installed = false;
   for (const bin of ghCandidates()) {
     try {
-      const { stdout } = await run(bin, ["auth", "token"], { timeout: 10_000 });
+      const { stdout } = await run(bin, ["auth", "token", "--hostname", host], { timeout: 10_000 });
       const value = stdout.trim();
       if (value) {
-        cachedToken = { value, at: Date.now() };
+        tokenCache.set(host, { value, at: Date.now() });
         return value;
       }
-      installed = true; // gh exists but isn't logged in; no point trying other copies
+      installed = true; // gh exists but has no login for this host
       break;
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "ENOENT") {
-        installed = true; // gh ran and failed (not logged in)
+        installed = true; // gh ran and failed (not logged in to this host)
         break;
       }
     }
   }
+  const login = host === DEFAULT_HOST ? "gh auth login" : `gh auth login --hostname ${host}`;
+  const envName = host === DEFAULT_HOST ? "GITHUB_TOKEN" : "GH_ENTERPRISE_TOKEN";
   throw new GitHubError(
     "no_token",
     installed
-      ? "The GitHub CLI isn't logged in. Run `gh auth login` (then `gh auth refresh -s project` for Projects), or set GITHUB_TOKEN."
-      : "No GitHub credentials found. Install the GitHub CLI (https://cli.github.com) and run `gh auth login`, or set GITHUB_TOKEN for the app.",
+      ? `The GitHub CLI isn't logged in to ${host}. Run \`${login}\` (then \`gh auth refresh -s project --hostname ${host}\` for Projects), or set ${envName}.`
+      : `No credentials found for ${host}. Install the GitHub CLI (https://cli.github.com) and run \`${login}\`, or set ${envName} for the app.`,
   );
 }
 
@@ -84,14 +153,15 @@ type GqlResponse<T> = {
 };
 
 async function gql<T>(
+  host: string,
   query: string,
   variables: Record<string, unknown> = {},
   { tolerant = false }: { tolerant?: boolean } = {},
 ): Promise<{ data: T; warnings: string[] }> {
-  const token = await getToken();
+  const token = await getToken(host);
   let res: Response;
   try {
-    res = await fetch("https://api.github.com/graphql", {
+    res = await fetch(graphqlUrl(host), {
       method: "POST",
       headers: {
         authorization: `bearer ${token}`,
@@ -101,13 +171,13 @@ async function gql<T>(
       body: JSON.stringify({ query, variables }),
     });
   } catch (e) {
-    throw new GitHubError("network", `Could not reach GitHub: ${(e as Error).message}`);
+    throw new GitHubError("network", `Could not reach ${host}: ${(e as Error).message}`);
   }
   if (res.status === 401) {
-    cachedToken = null;
-    throw new GitHubError("bad_token", "GitHub rejected the token (401). Re-run `gh auth login`.");
+    tokenCache.delete(host);
+    throw new GitHubError("bad_token", `${host} rejected the token (401). Re-run \`gh auth login${host === DEFAULT_HOST ? "" : " --hostname " + host}\`.`);
   }
-  if (!res.ok) throw new GitHubError("unknown", `GitHub returned ${res.status}.`);
+  if (!res.ok) throw new GitHubError("unknown", `${host} returned ${res.status}.`);
   const json = (await res.json()) as GqlResponse<T>;
   const warnings = (json.errors ?? []).map((e) => e.message);
   if (!json.data || (!tolerant && warnings.length))
@@ -200,13 +270,16 @@ const avatarCache = new Map<string, Promise<string>>();
  * MCP App iframes run under a strict CSP that may block remote images, so avatars are
  * fetched here and inlined as small data URIs. Failures fall back to the original URL.
  */
-function inlineAvatar(url: string): Promise<string> {
+function inlineAvatar(url: string, host = DEFAULT_HOST): Promise<string> {
   if (!url || url.startsWith("data:")) return Promise.resolve(url);
   let p = avatarCache.get(url);
   if (!p) {
     p = (async () => {
       try {
-        const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+        // Avatars served by an Enterprise host itself can require the same credentials as the API.
+        const sameHost = host !== DEFAULT_HOST && new URL(url).hostname.endsWith(host.replace(/^api\./, ""));
+        const headers: Record<string, string> = sameHost ? { authorization: `bearer ${await getToken(host)}` } : {};
+        const res = await fetch(url, { headers, signal: AbortSignal.timeout(4000) });
         if (!res.ok) return url;
         const buf = Buffer.from(await res.arrayBuffer());
         if (buf.length > 40_000) return url;
@@ -220,21 +293,41 @@ function inlineAvatar(url: string): Promise<string> {
   return p;
 }
 
-async function withAvatars(items: Item[]): Promise<Item[]> {
+async function withAvatars(items: Item[], host = DEFAULT_HOST): Promise<Item[]> {
   await Promise.all(
     items.flatMap((i) =>
       i.assignees.map(async (a) => {
-        a.avatarUrl = await inlineAvatar(a.avatarUrl);
+        a.avatarUrl = await inlineAvatar(a.avatarUrl, host);
       }),
     ),
   );
   return items;
 }
 
+
+// ------------------------------------------------------- older-server tolerance
+
+/**
+ * Some optional fields (project membership, linked PRs) don't exist on older GitHub Enterprise
+ * Server releases, and one unknown field fails the entire query. Retry once without them.
+ */
+const OPTIONAL_FIELDS = /projectItems|ProjectV2|fieldValueByName|closedByPullRequestsReferences/;
+
+async function withoutOptionalFields<T>(run: (lean: boolean) => Promise<T>): Promise<T> {
+  try {
+    return await run(false);
+  } catch (e) {
+    if (e instanceof GitHubError && e.code === "unknown" && OPTIONAL_FIELDS.test(e.message)) return run(true);
+    throw e;
+  }
+}
+
 // --------------------------------------------------------------- viewer
 
-export async function getViewer(): Promise<Viewer> {
+export async function getViewer(hostArg?: string): Promise<Viewer> {
+  const host = normalizeHost(hostArg);
   const { data } = await gql<any>(
+    host,
     `{ viewer { login name avatarUrl(size: 64) organizations(first: 50) { nodes { login } } } }`,
     {},
     { tolerant: true },
@@ -242,7 +335,7 @@ export async function getViewer(): Promise<Viewer> {
   return {
     login: data.viewer.login,
     name: data.viewer.name ?? null,
-    avatarUrl: await inlineAvatar(data.viewer.avatarUrl),
+    avatarUrl: await inlineAvatar(data.viewer.avatarUrl, host),
     orgs: data.viewer.organizations.nodes.map((o: any) => o.login),
   };
 }
@@ -269,22 +362,26 @@ export function buildSearchQuery(p: SearchParams): string {
 }
 
 export async function searchItems(p: SearchParams, first = 40): Promise<Page<Item>> {
-  const { data } = await gql<any>(
-    `query($q: String!, $first: Int!, $after: String) {
-      search(query: $q, type: ISSUE, first: $first, after: $after) {
-        issueCount
-        pageInfo { hasNextPage endCursor }
-        nodes {
-          __typename
-          ... on Issue { ${ISSUE_FIELDS} }
-          ... on PullRequest { ${PR_FIELDS} }
+  const host = normalizeHost(p.host);
+  const { data } = await withoutOptionalFields((lean) =>
+    gql<any>(
+      host,
+      `query($q: String!, $first: Int!, $after: String) {
+        search(query: $q, type: ISSUE, first: $first, after: $after) {
+          issueCount
+          pageInfo { hasNextPage endCursor }
+          nodes {
+            __typename
+            ... on Issue { ${lean ? ITEM_FIELDS : ISSUE_FIELDS} }
+            ... on PullRequest { ${PR_FIELDS} }
+          }
         }
-      }
-    }`,
-    { q: buildSearchQuery(p), first, after: p.after ?? null },
+      }`,
+      { q: buildSearchQuery(p), first, after: p.after ?? null },
+    ),
   );
   return {
-    items: await withAvatars(data.search.nodes.map(toItem).filter(Boolean) as Item[]),
+    items: await withAvatars(data.search.nodes.map(toItem).filter(Boolean) as Item[], host),
     totalCount: data.search.issueCount,
     hasNextPage: data.search.pageInfo.hasNextPage,
     endCursor: data.search.pageInfo.endCursor,
@@ -308,8 +405,10 @@ function toProject(n: any, owner: string): ProjectSummary {
 
 const PROJECT_SUMMARY = `id number title url shortDescription updatedAt closed total: items { totalCount }`;
 
-export async function listProjects(): Promise<{ projects: ProjectSummary[]; warnings: string[] }> {
+export async function listProjects(hostArg?: string): Promise<{ projects: ProjectSummary[]; warnings: string[] }> {
+  const host = normalizeHost(hostArg);
   const { data, warnings } = await gql<any>(
+    host,
     `{
       viewer {
         login
@@ -335,7 +434,8 @@ export async function listProjects(): Promise<{ projects: ProjectSummary[]; warn
   return { projects: out, warnings };
 }
 
-export async function getBoard(projectId: string, maxItems = 300): Promise<Board> {
+export async function getBoard(projectId: string, hostArg?: string, maxItems = 300): Promise<Board> {
+  const host = normalizeHost(hostArg);
   const items: Item[] = [];
   let after: string | null = null;
   let project: ProjectSummary | null = null;
@@ -344,6 +444,7 @@ export async function getBoard(projectId: string, maxItems = 300): Promise<Board
 
   while (items.length < maxItems) {
     const { data }: { data: any } = await gql<any>(
+      host,
       `query($id: ID!, $after: String) {
         node(id: $id) {
           ... on ProjectV2 {
@@ -407,24 +508,26 @@ export async function getBoard(projectId: string, maxItems = 300): Promise<Board
     after = node.items.pageInfo.endCursor;
     if (items.length >= maxItems) truncated = true;
   }
-  await withAvatars(items);
+  await withAvatars(items, host);
   return { project: project!, groupFields, items, truncated };
 }
 
 // --------------------------------------------------------------- detail
 
-export async function getIssueDetail(repo: string, number: number): Promise<IssueDetail> {
+export async function getIssueDetail(repo: string, number: number, hostArg?: string): Promise<IssueDetail> {
+  const host = normalizeHost(hostArg);
   const [owner, name] = repo.split("/");
   if (!owner || !name) throw new GitHubError("unknown", `Invalid repo "${repo}"; expected owner/name.`);
-  const { data } = await gql<any>(
+  const { data } = await withoutOptionalFields((lean) => gql<any>(
+    host,
     `query($owner: String!, $name: String!, $number: Int!) {
       repository(owner: $owner, name: $name) {
         issueOrPullRequest(number: $number) {
           __typename
           ... on Issue {
-            ${ISSUE_FIELDS}
+            ${lean ? ITEM_FIELDS : ISSUE_FIELDS}
             body
-            closedByPullRequestsReferences(first: 5) { nodes { number title url state } }
+            ${lean ? "" : "closedByPullRequestsReferences(first: 5) { nodes { number title url state } }"}
             recent: comments(last: 5) { nodes { body createdAt author { login } } }
           }
           ... on PullRequest {
@@ -436,11 +539,11 @@ export async function getIssueDetail(repo: string, number: number): Promise<Issu
       }
     }`,
     { owner, name, number },
-  );
+  ));
   const n = data.repository?.issueOrPullRequest;
   const item = toItem(n);
   if (!item) throw new GitHubError("unknown", `${repo}#${number} not found.`);
-  await withAvatars([item]);
+  await withAvatars([item], host);
   return {
     ...item,
     body: n.body ?? "",

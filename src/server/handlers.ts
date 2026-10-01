@@ -15,8 +15,9 @@ export function errorOf(e: unknown): AppError {
  */
 export const open = async () => ({ ready: true });
 
-export const viewer = () => gh.getViewer();
+export const hosts = () => gh.listHosts();
+export const viewer = (host?: string) => gh.getViewer(host);
 export const search = (p: SearchParams) => gh.searchItems({ ...DEFAULT_SEARCH, ...p });
-export const projects = () => gh.listProjects();
-export const board = (projectId: string) => gh.getBoard(projectId);
-export const issue = (repo: string, number: number) => gh.getIssueDetail(repo, number);
+export const projects = (host?: string) => gh.listProjects(host);
+export const board = (projectId: string, host?: string) => gh.getBoard(projectId, host);
+export const issue = (repo: string, number: number, host?: string) => gh.getIssueDetail(repo, number, host);

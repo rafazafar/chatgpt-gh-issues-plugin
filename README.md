@@ -99,7 +99,30 @@ it available to the app as `GITHUB_TOKEN`. Apps launched from the Dock don't see
 
 If your orgs enforce SAML SSO, authorise the token for them (GitHub → Settings → Tokens → Configure SSO).
 
-Requests go only to `api.github.com` (and avatar images from `avatars.githubusercontent.com`). Nothing is
+### GitHub Enterprise
+
+Works with **GitHub Enterprise Server** (`https://ghe.company.com`) and **GitHub Enterprise Cloud with data
+residency** (`*.ghe.com`) as well as github.com.
+
+```sh
+gh auth login --hostname ghe.company.com
+gh auth refresh -s project --hostname ghe.company.com
+```
+
+- The plugin reads the hosts you're signed in to from the GitHub CLI's `hosts.yml`. If you're signed in to more than
+  one, a **host switcher** appears in the header. With a single Enterprise login it starts there automatically
+  (set `GH_HOST` to force a default).
+- Tokens are looked up **per host**: `GH_ENTERPRISE_TOKEN` (or `GITHUB_ENTERPRISE_TOKEN`) for Enterprise,
+  `GITHUB_TOKEN`/`GH_TOKEN` for github.com. A github.com token is never sent to an Enterprise host (covered by a test).
+- Prompts sent to Codex name the host and tell it to use `GH_HOST=<host>` with the `gh` CLI.
+- Older Enterprise Server releases without some GraphQL fields (project membership, linked PRs) still list issues;
+  those extras are simply left out. Projects v2 needs a server version that supports it.
+
+> **Status:** the Enterprise path is covered by unit tests (endpoint selection, token isolation, host discovery,
+> older-server fallback) but hasn't been run against a real Enterprise instance yet. Issues welcome if you hit
+> something.
+
+Requests go only to the GitHub host you're using (`api.github.com`, or your Enterprise host) plus avatar images. Nothing is
 stored or sent anywhere else, and the plugin never writes to GitHub.
 
 ## How it works
@@ -113,7 +136,7 @@ serves an **MCP App** UI.
 | Sidebar app + side-panel app | `launchpad.open`, `launchpad.tray` tools | `openai/ui` entrypoints: `global`, `thread` |
 | Start a new thread | `src/app/host.ts` | `ui/message` with `target: "new"` |
 | Add to composer | `src/app/host.ts` | `ui/update-model-context` + `_meta["openai/title"]` |
-| GitHub data | `src/server/github.ts` | plain GraphQL over `fetch` |
+| GitHub data | `src/server/github.ts` | plain GraphQL over `fetch` (github.com + Enterprise) |
 | Prompt templates | `src/app/prompt.ts` | n/a |
 
 ```
@@ -159,7 +182,7 @@ Codex refreshes its cached copy.
   quit and reopen the app.
 - **"No GitHub credentials found" / "gh isn't logged in":** run `gh auth login`, or provide `GITHUB_TOKEN`
   (see *GitHub access* above), then click refresh in the plugin.
-- **Projects tab is empty:** run `gh auth refresh -s project`. Org projects may also need SSO authorisation
+- **Projects tab is empty:** run `gh auth refresh -s project` (add `--hostname <host>` for Enterprise). Org projects may also need SSO authorisation
   of your token.
 - **Avatars don't show:** they're inlined by the server; check network access to `avatars.githubusercontent.com`.
 

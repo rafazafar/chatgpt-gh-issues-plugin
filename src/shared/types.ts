@@ -40,7 +40,11 @@ export type Page<T> = {
   endCursor: string | null;
 };
 
+export type HostsInfo = { hosts: string[]; default: string };
+
 export type SearchParams = {
+  /** GitHub instance, e.g. "ghe.corp.com". Omitted = the machine's default (github.com). */
+  host?: string;
   scope: "involves" | "assigned" | "author" | "mentions" | "all";
   kind: "issue" | "pr" | "any";
   state: "open" | "closed" | "all";

@@ -257,3 +257,7 @@ button.link { padding: 0 2px; color: var(--accent); text-decoration: underline; 
   .progress.on::before { width: 100%; opacity: .45; background: var(--accent); transform: none; }
   .spinner { border-top-color: var(--fg-2); }
 }
+
+/* ------------------------------------------------------ GitHub host */
+.host-select { max-width: 200px; padding: 4px 8px; font-size: 12.5px; color: var(--fg-2); }
+.host-badge { font-size: 12px; color: var(--fg-2); border: 1px solid var(--line); border-radius: 99px; padding: 3px 10px; white-space: nowrap; max-width: 200px; overflow: hidden; text-overflow: ellipsis; }

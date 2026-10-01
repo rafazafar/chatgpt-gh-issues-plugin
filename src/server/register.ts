@@ -37,7 +37,10 @@ function guard<A, R extends object>(fn: (a: A) => Promise<R>, summarise?: (r: R)
   };
 }
 
+const hostField = z.string().optional().describe("GitHub host, e.g. github.com or ghe.corp.com. Defaults to the signed-in default.");
+
 const searchShape = {
+  host: hostField,
   scope: z.enum(["involves", "assigned", "author", "mentions", "all"]).default("involves"),
   kind: z.enum(["issue", "pr", "any"]).default("issue"),
   state: z.enum(["open", "closed", "all"]).default("open"),
@@ -105,15 +108,28 @@ export function registerLaunchpad(server: McpServer, html: string) {
 
   registerAppTool(
     server,
+    "launchpad.hosts",
+    {
+      title: "GitHub hosts",
+      description: "GitHub instances (github.com, GitHub Enterprise) this machine is signed in to.",
+      inputSchema: {},
+      annotations: readonly,
+      _meta: { ui: { resourceUri: UI_URI, visibility: ["app", "model"] } },
+    },
+    guard(h.hosts, (r) => `Hosts: ${r.hosts.join(", ")} (default: ${r.default})`),
+  );
+
+  registerAppTool(
+    server,
     "launchpad.viewer",
     {
       title: "Current GitHub user",
       description: "The GitHub account Issue Launchpad is signed in as.",
-      inputSchema: {},
+      inputSchema: { host: hostField },
       annotations: readonly,
       _meta: { ui: { resourceUri: UI_URI, visibility: ["app"] } },
     },
-    guard(h.viewer),
+    guard(({ host }: { host?: string }) => h.viewer(host)),
   );
 
   registerAppTool(
@@ -141,11 +157,11 @@ export function registerLaunchpad(server: McpServer, html: string) {
     {
       title: "List GitHub Projects",
       description: "List GitHub Projects (v2) visible to the connected account.",
-      inputSchema: {},
+      inputSchema: { host: hostField },
       annotations: readonly,
       _meta: { ui: { resourceUri: UI_URI, visibility: ["app", "model"] } },
     },
-    guard(h.projects, (r) => r.projects.map((p) => `- ${p.owner}/${p.number} ${p.title} (${p.itemCount} items)`).join("\n")),
+    guard(({ host }: { host?: string }) => h.projects(host), (r) => r.projects.map((p) => `- ${p.owner}/${p.number} ${p.title} (${p.itemCount} items)`).join("\n")),
   );
 
   registerAppTool(
@@ -154,11 +170,11 @@ export function registerLaunchpad(server: McpServer, html: string) {
     {
       title: "Read a GitHub Project board",
       description: "Read every item of a GitHub Project (v2) with its field values, by project node id.",
-      inputSchema: { projectId: z.string() },
+      inputSchema: { projectId: z.string(), host: hostField },
       annotations: readonly,
       _meta: { ui: { resourceUri: UI_URI, visibility: ["app"] } },
     },
-    guard(({ projectId }: { projectId: string }) => h.board(projectId)),
+    guard(({ projectId, host }: { projectId: string; host?: string }) => h.board(projectId, host)),
   );
 
   registerAppTool(
@@ -168,12 +184,12 @@ export function registerLaunchpad(server: McpServer, html: string) {
       title: "Read a GitHub issue",
       description:
         "Read the full body, labels, linked pull requests and recent comments of an issue or pull request.",
-      inputSchema: { repo: z.string().describe("owner/name"), number: z.number().int() },
+      inputSchema: { repo: z.string().describe("owner/name"), number: z.number().int(), host: hostField },
       annotations: readonly,
       _meta: { ui: { resourceUri: UI_URI, visibility: ["app", "model"] } },
     },
     guard(
-      ({ repo, number }: { repo: string; number: number }) => h.issue(repo, number),
+      ({ repo, number, host }: { repo: string; number: number; host?: string }) => h.issue(repo, number, host),
       (d) =>
         `# ${d.repo}#${d.number}: ${d.title}\nState: ${d.state}\nLabels: ${d.labels.map((l) => l.name).join(", ") || "none"}\nURL: ${d.url}\n\n${d.body}\n\n` +
         d.recentComments.map((c) => `--- ${c.author} (${c.createdAt})\n${c.body}`).join("\n\n"),

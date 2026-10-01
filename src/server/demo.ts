@@ -60,6 +60,11 @@ Seen in production on 2026-09-28. Repro: \`scripts/burst.sh --tenants 40\`.
 const page = <T>(items: T[]): Page<T> => ({ items, totalCount: items.length, hasNextPage: false, endCursor: null });
 
 export const open = async () => ({ ready: true });
+// DEMO_HOSTS=github.com,ghe.acme.com shows the host switcher.
+export const hosts = async () => {
+  const list = (process.env.DEMO_HOSTS ?? "github.com").split(",");
+  return { hosts: list, default: list[0] };
+};
 export const viewer = async (): Promise<Viewer> => ({ login: "ada", name: "Ada", avatarUrl: ada.avatarUrl, orgs: ["acme"] });
 export const search = async (p: SearchParams) => {
   const needle = (p.text ?? "").toLowerCase();

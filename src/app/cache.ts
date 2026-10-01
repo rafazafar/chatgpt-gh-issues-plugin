@@ -47,26 +47,26 @@ export function cacheSet<T>(key: string, value: T): void {
 
 /** Stable per-query key (ignores the pagination cursor). */
 export const searchKey = (p: SearchParams) =>
-  "issues:" + JSON.stringify([p.scope, p.kind, p.state, p.repo ?? "", p.text ?? "", [...(p.labels ?? [])].sort(), p.sort]);
+  "issues:" + JSON.stringify([p.host ?? "", p.scope, p.kind, p.state, p.repo ?? "", p.text ?? "", [...(p.labels ?? [])].sort(), p.sort]);
 
 // ---- issue details: deduplicated, short-lived, never persisted (bodies can be large)
 const DETAIL_TTL = 3 * 60_000;
 const details = new Map<string, { promise: Promise<IssueDetail>; value?: IssueDetail; at: number }>();
-const detailKey = (repo: string, n: number) => `${repo}#${n}`;
+const detailKey = (repo: string, n: number, ghHost = "") => `${ghHost}|${repo}#${n}`;
 
-export function peekDetail(repo: string, n: number): IssueDetail | undefined {
-  const d = details.get(detailKey(repo, n));
+export function peekDetail(repo: string, n: number, ghHost?: string): IssueDetail | undefined {
+  const d = details.get(detailKey(repo, n, ghHost));
   return d && Date.now() - d.at < DETAIL_TTL ? d.value : undefined;
 }
 
 /** Fetch once and share: hover-prefetch and the real open reuse the same request. */
-export function fetchDetail(host: Host, repo: string, n: number): Promise<IssueDetail> {
-  const key = detailKey(repo, n);
+export function fetchDetail(host: Host, repo: string, n: number, ghHost?: string): Promise<IssueDetail> {
+  const key = detailKey(repo, n, ghHost);
   const existing = details.get(key);
   if (existing && Date.now() - existing.at < DETAIL_TTL) return existing.promise;
   const entry: { promise: Promise<IssueDetail>; value?: IssueDetail; at: number } = {
     at: Date.now(),
-    promise: host.callTool<IssueDetail>("launchpad.issue", { repo, number: n }).then(
+    promise: host.callTool<IssueDetail>("launchpad.issue", { repo, number: n, host: ghHost }).then(
       (v) => ((entry.value = v), v),
       (e) => (details.delete(key), Promise.reject(e)),
     ),

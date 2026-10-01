@@ -12,6 +12,8 @@ const shorten = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1).trim
 type Props = {
   item: Item;
   host: Host;
+  /** GitHub instance the item belongs to (undefined = default). */
+  ghHost?: string;
   mode: Mode;
   onMode: (m: Mode) => void;
   onClose: () => void;
@@ -22,7 +24,7 @@ type Props = {
   onCopy: (text: string) => Promise<void>;
 };
 
-export function Detail({ item, host, mode, onMode, onClose, onStart, onAttach, onCopy }: Props) {
+export function Detail({ item, host, ghHost, mode, onMode, onClose, onStart, onAttach, onCopy }: Props) {
   const [detail, setDetail] = useState<IssueDetail | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
@@ -32,14 +34,14 @@ export function Detail({ item, host, mode, onMode, onClose, onStart, onAttach, o
 
   // Reload full text whenever the focused item changes.
   useEffect(() => {
-    setDetail(item.repo && item.number != null ? (peekDetail(item.repo, item.number) ?? null) : null);
+    setDetail(item.repo && item.number != null ? (peekDetail(item.repo, item.number, ghHost) ?? null) : null);
     setErr(null);
     setNotes("");
     setShowPrompt(false);
     setEdited(null);
     if (item.kind === "draft" || !item.repo || item.number == null) return;
     let cancelled = false;
-    fetchDetail(host, item.repo, item.number)
+    fetchDetail(host, item.repo, item.number, ghHost)
       .then((d) => !cancelled && setDetail(d))
       .catch((e) => !cancelled && setErr(String(e.message ?? e)));
     return () => {
@@ -50,7 +52,7 @@ export function Detail({ item, host, mode, onMode, onClose, onStart, onAttach, o
   const full: Item | IssueDetail = detail ?? item;
   const modes = modesFor(item);
   const active: Mode = modes.some((m) => m.id === mode) ? mode : defaultMode(item);
-  const generated = useMemo(() => buildPrompt({ item: full, mode: active, notes }), [full, active, notes]);
+  const generated = useMemo(() => buildPrompt({ item: full, mode: active, notes, host: ghHost }), [full, active, notes, ghHost]);
   // Hand edits win until the inputs that generated the prompt change again.
   useEffect(() => setEdited(null), [generated]);
   const prompt = edited ?? generated;

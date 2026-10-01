@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
-import type { AppError, Board, IssueDetail, Item, Page, ProjectSummary, SearchParams, Viewer } from "../shared/types.ts";
+import type { AppError, Board, HostsInfo, IssueDetail, Item, Page, ProjectSummary, SearchParams, Viewer } from "../shared/types.ts";
 import { DEFAULT_SEARCH } from "../shared/types.ts";
 import { connectHost, type Attachment, type Host } from "./host.ts";
 import { buildContext, buildPrompt, defaultMode, modesFor, type Mode } from "./prompt.ts";
@@ -51,6 +51,10 @@ export function App() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [text, setText] = useState(() => params.text ?? "");
+  // Which GitHub (github.com or an Enterprise host) we're looking at. params.host is the source of truth.
+  const [hostInfo, setHostInfo] = useState<HostsInfo | null>(null);
+  const effHost = params.host ?? hostInfo?.default;
+  const hk = () => paramsRef.current.host ?? "";
 
   // projects
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
@@ -89,11 +93,12 @@ export function App() {
 
   const loadViewer = useCallback(() => {
     const h = hostRef.current!;
-    const saved = cacheGet<Viewer>("viewer");
+    const key = "viewer:" + hk();
+    const saved = cacheGet<Viewer>(key);
     if (saved) setViewer(saved.value);
     void track(() =>
-      h.callTool<Viewer>("launchpad.viewer").then((v) => {
-        cacheSet("viewer", v);
+      h.callTool<Viewer>("launchpad.viewer", { host: paramsRef.current.host }).then((v) => {
+        cacheSet(key, v);
         setViewer(v);
       }),
     ).catch(() => undefined); // auth problems surface through the issue search
@@ -151,7 +156,37 @@ export function App() {
     if (!host) return;
     loadViewer();
     void runSearch(paramsRef.current);
+    // Learn which GitHub instances are available; a remembered host that's gone falls back to the default.
+    host
+      .callTool<HostsInfo>("launchpad.hosts")
+      .then((info) => {
+        setHostInfo(info);
+        const chosen = paramsRef.current.host;
+        if (chosen && !info.hosts.includes(chosen)) switchHost(info.default);
+      })
+      .catch(() => undefined);
   }, [host]);
+
+  const switchHost = (next: string) => {
+    const p: SearchParams = { ...DEFAULT_SEARCH, ...paramsRef.current, host: next, after: null, repo: undefined, labels: undefined, text: undefined };
+    paramsRef.current = p;
+    setParams(p);
+    save("params", p);
+    setText("");
+    setPage(null);
+    setPageKey(null);
+    setStaleAt(null);
+    setProjects(null);
+    setProjectId(null);
+    setBoard(null);
+    setFocus(null);
+    setChecked(new Map());
+    setViewer(null);
+    setLoadError(null);
+    loadViewer();
+    void runSearch(p);
+    if (tab === "projects") void loadProjects();
+  };
 
   const changeParams = (patch: Partial<SearchParams>) => {
     const next = { ...paramsRef.current, ...patch, after: null };
@@ -173,7 +208,8 @@ export function App() {
     type Listing = { projects: ProjectSummary[]; warnings: string[] };
     const choose = (list: ProjectSummary[]) =>
       setProjectId((cur) => (cur && list.some((p) => p.id === cur) ? cur : (list.find((p) => p.itemCount > 0)?.id ?? null)));
-    const saved = cacheGet<Listing>("projects");
+    const listKey = "projects:" + hk();
+    const saved = cacheGet<Listing>(listKey);
     if (saved) {
       setProjects(saved.value.projects);
       setProjWarn(saved.value.warnings[0] ?? null);
@@ -181,8 +217,8 @@ export function App() {
     }
     await track(async () => {
       try {
-        const r = await h.callTool<Listing>("launchpad.projects");
-        cacheSet("projects", r);
+        const r = await h.callTool<Listing>("launchpad.projects", { host: paramsRef.current.host });
+        cacheSet(listKey, r);
         setProjects(r.projects);
         setProjWarn(r.warnings[0] ?? null);
         choose(r.projects);
@@ -201,7 +237,7 @@ export function App() {
     const h = hostRef.current;
     if (!projectId || !h || tab !== "projects") return;
     save("projectId", projectId);
-    const key = "board:" + projectId;
+    const key = `board:${hk()}:${projectId}`;
     const force = forceBoard.current;
     forceBoard.current = false;
 
@@ -215,7 +251,7 @@ export function App() {
     setBoardRefreshing(true);
     void track(() =>
       h
-        .callTool<Board>("launchpad.board", { projectId })
+        .callTool<Board>("launchpad.board", { projectId, host: paramsRef.current.host })
         .then((b) => {
           if (cancelled) return;
           cacheSet(key, b);
@@ -245,7 +281,7 @@ export function App() {
     window.clearTimeout(hoverTimer.current);
     if (!item || !item.repo || item.number == null || !hostRef.current) return;
     hoverTimer.current = window.setTimeout(() => {
-      void fetchDetail(hostRef.current!, item.repo!, item.number!).catch(() => undefined);
+      void fetchDetail(hostRef.current!, item.repo!, item.number!, paramsRef.current.host).catch(() => undefined);
     }, 120);
   };
 
@@ -255,7 +291,7 @@ export function App() {
       items.map(async (i) => {
         if (i.kind === "draft" || !i.repo || i.number == null) return i;
         try {
-          return await fetchDetail(hostRef.current!, i.repo, i.number);
+          return await fetchDetail(hostRef.current!, i.repo, i.number, paramsRef.current.host);
         } catch {
           return i;
         }
@@ -276,7 +312,7 @@ export function App() {
 
   const quickStart = async (item: Item) => {
     const [full] = await withDetail([item]);
-    await startPrompt(buildPrompt({ item: full, mode: modeFor(item) }), describe(item));
+    await startPrompt(buildPrompt({ item: full, mode: modeFor(item), host: effHost }), describe(item));
   };
 
   const startMany = async () => {
@@ -286,7 +322,7 @@ export function App() {
     let sent = 0;
     for (const it of full) {
       try {
-        const how = await hostRef.current!.startThread(buildPrompt({ item: it, mode: modeFor(it) }));
+        const how = await hostRef.current!.startThread(buildPrompt({ item: it, mode: modeFor(it), host: effHost }));
         if (how === "copied") {
           say("Prompts can only be copied here — start tasks one at a time.", "err");
           return;
@@ -396,6 +432,13 @@ export function App() {
             <input id="search" placeholder="Search · try label:bug no:assignee   ( / )" value={text} onInput={(e) => setText((e.target as HTMLInputElement).value)} />
           </div>
         )}
+        {hostInfo && hostInfo.hosts.length > 1 ? (
+          <select class="host-select" aria-label="GitHub instance" value={effHost} onChange={(e) => switchHost((e.target as HTMLSelectElement).value)}>
+            {hostInfo.hosts.map((h) => <option key={h} value={h}>{h}</option>)}
+          </select>
+        ) : effHost && effHost !== "github.com" ? (
+          <span class="host-badge" title="GitHub Enterprise host">{effHost}</span>
+        ) : null}
         <button class={cx("icon-btn", busy > 0 && "spin")} title={busy > 0 ? "Updating…" : "Refresh"} aria-label="Refresh" onClick={refresh}><Svg d="refresh" /></button>
         {viewer && (
           <div class="viewer" title={viewer.orgs.length ? `Orgs: ${viewer.orgs.join(", ")}` : viewer.login}>
@@ -430,7 +473,7 @@ export function App() {
         {focus && host && <Resizer width={detailW} onChange={setDetailW} onCommit={(w) => save("detailW", w)} />}
         {focus && host && (
           <Detail
-            item={focus} host={host} mode={mode}
+            item={focus} host={host} ghHost={params.host} mode={mode}
             onMode={(m) => { setMode(m); save("mode", m); }}
             onClose={() => setFocus(null)} onStart={startPrompt} onAttach={(text, title) => attach([{ key: focus.id, title, text }], "the task")} onCopy={copy}
           />
