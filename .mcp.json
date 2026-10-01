@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "issue-launchpad": {
+      "command": "node",
+      "args": ["./dist/server.js"],
+      "cwd": "."
+    }
+  }
+}

@@ -1,0 +1,153 @@
+# Issue Launchpad
+
+**A Codex / ChatGPT desktop plugin that turns your GitHub account into a task launchpad.**
+Browse every issue you're involved in, see your GitHub Projects as boards, and start a Codex thread
+on any of them in one click, pre-loaded with the issue, the repo and a plan-first or implement-now brief.
+
+![Issues view with the detail and launch panel](docs/screenshots/issues.png)
+
+<details>
+<summary>More screenshots (Projects board, dark mode)</summary>
+
+![Projects board](docs/screenshots/board.png)
+![Dark mode](docs/screenshots/issues-dark.png)
+
+</details>
+
+> Screenshots use fake demo data (`DEMO=1 npm run dev`).
+
+## Features
+
+- **Issues across every repo.** Involving me / Assigned / Created / Mentioned, filtered by repo, label,
+  state, issues vs PRs, optionally grouped by repo. The search box takes raw GitHub qualifiers
+  (`label:bug no:assignee repo:owner/name`).
+- **GitHub Projects (v2) as boards.** Every project you and your orgs can see, grouped by any
+  single-select field (Status by default), with a card filter and "hide done".
+- **One-click task kickoff.** Choose a mode, add notes, and **Start in new thread**:
+
+  | Mode | What Codex is told to do |
+  | --- | --- |
+  | **Plan first** | Explore the code, propose a plan, wait for approval before editing |
+  | **Implement** | Branch, change, test, open a PR that closes the issue |
+  | **Investigate** | Find the root cause and report; no edits |
+  | **Review** (PRs) | Review the diff and report findings by severity |
+
+  The `▶` button on any row or card starts a thread immediately in your current mode.
+- **Edit before you send.** *Edit prompt* shows the exact text Codex will receive. Edits are used by
+  Start, Copy and Add to composer alike.
+- **Pick a model first.** The extension API can't choose a model for a new thread (it uses your
+  default). Use **Add to composer** to attach the prompt to the open composer, choose the model there,
+  then send. **Copy prompt** puts it on your clipboard.
+- **Batch.** Tick several items to start one thread each, or attach them all to the composer.
+- **Resizable detail panel** (drag the edge, double-click to reset, arrow keys to nudge; width is remembered).
+- **Keyboard:** `j`/`k` move · `x` select · `/` search · `Esc` close.
+- **Model tools.** Codex itself can call `launchpad.search`, `launchpad.projects` and `launchpad.issue`
+  to read issues without leaving the conversation.
+
+## Install
+
+Requires the Codex desktop app / CLI and Node.js 22+.
+
+```sh
+codex plugin marketplace add rafazafar/chatgpt-gh-issues-plugin
+codex plugin add issue-launchpad@chatgpt-gh-issues-plugin
+```
+
+Fully quit and reopen the app, then choose **Issue Launchpad** in the sidebar.
+
+Uninstall:
+
+```sh
+codex plugin remove issue-launchpad@chatgpt-gh-issues-plugin
+codex plugin marketplace remove chatgpt-gh-issues-plugin
+```
+
+### GitHub access
+
+There's no token to paste. The plugin uses, in order:
+
+1. `GITHUB_TOKEN` or `GH_TOKEN` from the environment, then
+2. your existing [GitHub CLI](https://cli.github.com) session (`gh auth token`).
+
+```sh
+gh auth login
+gh auth refresh -s project   # needed for Projects boards (read:project also works)
+```
+
+Requests go only to `api.github.com`. Nothing is stored or sent anywhere else. The plugin is read-only
+toward GitHub.
+
+## How it works
+
+Issue Launchpad is built on the [OpenAI MCP Extensions](https://github.com/openai/mcp-extensions)
+([docs](https://developers.openai.com/plugins/build/extensions)): a local **MCP server** (stdio) that also
+serves an **MCP App** UI.
+
+| Piece | Where | Extension used |
+| --- | --- | --- |
+| Sidebar app + side-panel app | `launchpad.open`, `launchpad.tray` tools | `openai/ui` entrypoints: `global`, `thread` |
+| Start a new thread | `src/app/host.ts` | `ui/message` with `target: "new"` |
+| Add to composer | `src/app/host.ts` | `ui/update-model-context` |
+| GitHub data | `src/server/github.ts` | plain GraphQL over `fetch` |
+| Prompt templates | `src/app/prompt.ts` | n/a |
+
+```
+.agents/plugins/marketplace.json   marketplace manifest (repo root = marketplace)
+plugins/issue-launchpad/           the built, installable plugin (committed so Git install works)
+src/server/                        MCP server: tools, GitHub GraphQL client, demo fixtures
+src/app/                           Preact UI, host bridge, prompt builder
+.codex-plugin/ .mcp.json skills/   plugin manifest sources
+scripts/build.mjs                  bundles server.js + a single self-contained app.html
+scripts/dev.mjs                    standalone browser preview
+```
+
+## Development
+
+```sh
+npm install
+npm test               # query builder, prompts, markdown sanitising
+npm run typecheck
+npm run build:plugin   # rebuild plugins/issue-launchpad (commit the result)
+```
+
+**Preview the UI in a browser** (no Codex needed, real GitHub data; "Start thread" copies the prompt):
+
+```sh
+npm run dev            # http://localhost:5199
+DEMO=1 npm run dev     # fake data, no network
+```
+
+**Install your working copy into Codex** (after `npm run build:plugin`):
+
+```sh
+codex plugin marketplace add "$PWD"
+codex plugin add issue-launchpad@chatgpt-gh-issues-plugin
+```
+
+Bump `version` in `.codex-plugin/plugin.json` when you change the plugin, then remove and re-add it so
+Codex refreshes its cached copy.
+
+## Troubleshooting
+
+- **No sidebar entry:** run `codex plugin list` and check it says `installed, enabled`, then fully
+  quit and reopen the app.
+- **"No GitHub credentials found":** run `gh auth login`.
+- **Projects tab is empty:** run `gh auth refresh -s project`. Org projects may also need SSO authorisation
+  of your token.
+- **Avatars don't show:** they're inlined by the server; check network access to `avatars.githubusercontent.com`.
+
+## Limitations
+
+- Read-only: you can't move cards or edit issues; the point is starting work.
+- Boards load up to 300 items per project; issue search pages 40 at a time.
+- A new thread uses your default model; see "Pick a model first" above.
+- The installed MCP SDK has no per-tool `icons`, so the sidebar uses the server icon.
+
+## Ideas
+
+Composer `@`-mentions for issues, a settings page (default mode, prompt templates), a "which local
+checkout is this repo" mapping so threads open in the right workspace.
+
+## License
+
+[Apache-2.0](LICENSE)

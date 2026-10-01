@@ -1,0 +1,30 @@
+{
+  "name": "issue-launchpad",
+  "version": "0.1.1",
+  "description": "Browse GitHub issues and Projects from the Codex sidebar and launch tasks from them.",
+  "author": {
+    "name": "Zafar"
+  },
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Issue Launchpad",
+    "shortDescription": "Browse issues & projects, kick off tasks",
+    "longDescription": "A command center for the GitHub account connected to this machine. Triage issues across every repo, browse Projects as boards, then start a Codex thread pre-loaded with the issue, a plan-first or implement-now brief, and repo context.",
+    "developerName": "Zafar",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Read"
+    ],
+    "composerIcon": "./assets/icon.svg",
+    "logo": "./assets/icon.svg",
+    "logoDark": "./assets/icon-dark.svg",
+    "defaultPrompt": [
+      "@Issue Launchpad show my open issues."
+    ]
+  },
+  "repository": "https://github.com/rafazafar/chatgpt-gh-issues-plugin",
+  "homepage": "https://github.com/rafazafar/chatgpt-gh-issues-plugin#readme",
+  "license": "Apache-2.0"
+}

@@ -1,0 +1,35 @@
+{
+  "name": "issue-launchpad",
+  "version": "0.1.1",
+  "private": true,
+  "description": "Browse GitHub issues and Projects from the Codex sidebar and kick off tasks.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "node ./scripts/build.mjs",
+    "dev": "node ./scripts/dev.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --test \"src/**/*.test.ts\"",
+    "build:plugin": "node ./scripts/build.mjs --plugin-dir plugins/issue-launchpad"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/ext-apps": "^1.7.5",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@openai/mcp-extensions": "^0.1.0",
+    "preact": "^10.26.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rafazafar/chatgpt-gh-issues-plugin.git"
+  },
+  "homepage": "https://github.com/rafazafar/chatgpt-gh-issues-plugin#readme"
+}
