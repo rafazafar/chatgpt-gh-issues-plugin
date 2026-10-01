@@ -40,7 +40,10 @@ export type Page<T> = {
   endCursor: string | null;
 };
 
-export type HostsInfo = { hosts: string[]; default: string };
+/** One signed-in identity, as known to the GitHub CLI. */
+export type Account = { host: string; login: string; active: boolean };
+
+export type HostsInfo = { hosts: string[]; default: string; accounts: Account[] };
 
 /** Outcome of probing a GitHub host: drives the "Connect a host" guidance. */
 export type HostCheck = {
@@ -56,6 +59,8 @@ export type HostCheck = {
 export type SearchParams = {
   /** GitHub instance, e.g. "ghe.corp.com". Omitted = the machine's default (github.com). */
   host?: string;
+  /** Which signed-in account on that host. Omitted = the CLI's active account. */
+  user?: string;
   scope: "involves" | "assigned" | "author" | "mentions" | "all";
   kind: "issue" | "pr" | "any";
   state: "open" | "closed" | "all";

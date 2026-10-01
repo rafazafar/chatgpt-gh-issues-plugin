@@ -44,7 +44,8 @@ on any of them in one click, pre-loaded with the issue, the repo and a plan-firs
   instantly and update in place (a thin progress bar and spinner show activity), filters and the board keep
   the old view on screen until fresh data lands, and hovering an issue pre-loads its details so opening
   it is instant.
-- **Any GitHub, guided.** github.com, GitHub Enterprise Server and ghe.com, switched from a header menu. Hosts
+- **Any GitHub, any account.** github.com, GitHub Enterprise Server and ghe.com, with every signed-in account one
+  click away in the avatar menu. Hosts
   that aren't signed in get a step-by-step connect guide (see below) instead of an error.
 - **Batch.** Tick several items to start one thread each, or attach them all to the composer.
 - **Resizable detail panel** (drag the edge, double-click to reset, arrow keys to nudge; width is remembered).
@@ -101,6 +102,22 @@ it available to the app as `GITHUB_TOKEN`. Apps launched from the Dock don't see
 
 If your orgs enforce SAML SSO, authorise the token for them (GitHub → Settings → Tokens → Configure SSO).
 
+### Several accounts or hosts? Switch from your avatar
+
+Click your **avatar and name (top right)** to see every account the GitHub CLI is signed in to, grouped by host
+(github.com, your company's GitHub, …). Pick one and the whole plugin (issues, Projects, prompts) switches to it. The
+choice is remembered.
+
+![Account menu](docs/screenshots/accounts.png)
+
+- **Add a host or account…** opens the guided connect flow. A second account on a host you already use is just
+  `gh auth login --hostname <host>` again; the new account shows up in the menu as soon as you return to the window.
+- Accounts come from the GitHub CLI (`gh auth status` lists them), so the plugin never stores credentials itself.
+- Prompts sent to Codex name the account you picked, with the `gh auth switch --hostname <host> --user <login>`
+  command in case the CLI in that thread is signed in as someone else.
+- If a `GITHUB_TOKEN` environment variable is set, it's used for the CLI's default account on github.com (like `gh`
+  itself does). Choosing a specific account from the menu uses that account's own saved login instead.
+
 ### Company GitHub, but you only use git + SSH?
 
 Very common: you `git clone git@github.mycompany.com:team/repo.git` all day and never signed the GitHub CLI in
@@ -110,7 +127,7 @@ stays exactly as it is.**
 
 The plugin walks you through it, with nothing to configure and no token pasted anywhere:
 
-1. Click the host name in the header (top right) → **Connect another GitHub host…**
+1. Click your avatar (top right) → **Add a host or account…**
    (or just open the plugin: if a host isn't signed in you'll land on the same guide).
 2. Type the host, i.e. the part after `git@` in your repo URLs, or use **Detect from my SSH config**
    (reads hostnames only, only when you click it).

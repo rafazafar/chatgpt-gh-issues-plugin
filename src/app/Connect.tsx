@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
-import type { HostCheck } from "../shared/types.ts";
+import type { HostCheck, HostsInfo, Viewer } from "../shared/types.ts";
 import type { Host } from "./host.ts";
 import { Spinner, Svg } from "./ui.tsx";
 import { cx, normHost } from "./util.ts";
@@ -101,6 +101,11 @@ export function ConnectPanel({ host, api, app, onReady, autoContinue }: PanelPro
         <h3 class="ok">✓ Connected to {host}</h3>
         <p>Signed in as <b>{res.login}</b>.</p>
         {!autoContinue && <button class="primary" onClick={() => onReady(host)}>Use {host}</button>}
+        <details class="alt">
+          <summary>Need a different account on {host}?</summary>
+          <p>Sign in with it too. Both stay available, and you can switch from the account menu (top right).</p>
+          <CommandBox cmd={`gh auth login --hostname ${host} --web`} host={app} />
+        </details>
       </div>
     );
 
@@ -259,8 +264,28 @@ export function ConnectDialog({ api, app, onUse, onClose, initialHost }: DialogP
   );
 }
 
-/** Header control: current host, the others you can switch to, and "Connect another…". */
-export function HostMenu({ current, hosts, warn, onSwitch, onConnect }: { current: string; hosts: string[]; warn?: boolean; onSwitch: (h: string) => void; onConnect: () => void }) {
+const hue = (s: string) => [...s].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 360, 7);
+
+function Initial({ login }: { login: string }) {
+  return <span class="ini" style={{ background: `hsl(${hue(login)} 52% 48%)` }} aria-hidden="true">{(login[0] ?? "?").toUpperCase()}</span>;
+}
+
+type AccountMenuProps = {
+  viewer: Viewer | null;
+  hostInfo: HostsInfo | null;
+  customHosts: string[];
+  current: { host: string; user?: string };
+  warn?: boolean;
+  onSwitch: (to: { host: string; user?: string }) => void;
+  onConnect: () => void;
+  onOpen: () => void;
+};
+
+/**
+ * Top-right account switcher: your avatar and name, and every signed-in account (grouped by GitHub
+ * host) one click away. Accounts come from the GitHub CLI, so "add" means signing in there.
+ */
+export function AccountMenu({ viewer, hostInfo, customHosts, current, warn, onSwitch, onConnect, onOpen }: AccountMenuProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -271,22 +296,62 @@ export function HostMenu({ current, hosts, warn, onSwitch, onConnect }: { curren
     window.addEventListener("keydown", esc);
     return () => (document.removeEventListener("mousedown", away), window.removeEventListener("keydown", esc));
   }, [open]);
-  const all = [...new Set([current, ...hosts])];
+
+  const accounts = hostInfo?.accounts ?? [];
+  const hosts = [...new Set([...(hostInfo?.hosts ?? ["github.com"]), ...customHosts, current.host])];
+  const activeOn = (h: string) => accounts.find((a) => a.host === h && a.active)?.login;
+  const login = current.user ?? activeOn(current.host) ?? viewer?.login;
+  const showHost = hosts.length > 1 || current.host !== "github.com";
+  const total = accounts.length || 1;
+
   return (
-    <div class="host-menu" ref={ref}>
-      <button class={cx("host-btn", open && "open", warn && "warn")} aria-haspopup="menu" aria-expanded={open} title="GitHub host" onClick={() => setOpen((o) => !o)}>
-        <span class="dot" />{current}<span class="caret">▾</span>
+    <div class="acct-menu" ref={ref}>
+      <button
+        class={cx("acct-btn", open && "open", warn && "warn")}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title={total > 1 || hosts.length > 1 ? "Switch account" : "Account"}
+        onClick={() => (!open && onOpen(), setOpen((o) => !o))}
+      >
+        {viewer?.avatarUrl && viewer.login === login ? <img src={viewer.avatarUrl} alt="" width="22" height="22" /> : <Initial login={login ?? "?"} />}
+        <span class="who">
+          <span class="name">{login ?? current.host}</span>
+          {showHost && <span class="where">{current.host}</span>}
+        </span>
+        <span class="caret">▾</span>
       </button>
       {open && (
         <div class="menu" role="menu">
-          {all.map((h) => (
-            <button key={h} role="menuitemradio" aria-checked={h === current} class={cx("item", h === current && "on")} onClick={() => (setOpen(false), h !== current && onSwitch(h))}>
-              <span class="tick">{h === current ? "✓" : ""}</span>{h}
-            </button>
-          ))}
+          {hosts.map((h) => {
+            const here = accounts.filter((a) => a.host === h);
+            return (
+              <div key={h} class="grp">
+                <div class="grp-title">{h}</div>
+                {here.length ? (
+                  here.map((a) => {
+                    const on = h === current.host && a.login === login;
+                    return (
+                      <button key={a.login} role="menuitemradio" aria-checked={on} class={cx("item", on && "on")} onClick={() => (setOpen(false), !on && onSwitch({ host: h, user: a.login }))}>
+                        <Initial login={a.login} />
+                        <span class="lbl">{a.login}</span>
+                        {on && <span class="tick">✓</span>}
+                      </button>
+                    );
+                  })
+                ) : (
+                  <button role="menuitemradio" aria-checked={h === current.host} class={cx("item", h === current.host && "on")} onClick={() => (setOpen(false), h !== current.host && onSwitch({ host: h }))}>
+                    <span class="ini plain" aria-hidden="true">•</span>
+                    <span class="lbl">{h === current.host && login ? login : "Use this host"}</span>
+                    {h === current.host && <span class="tick">✓</span>}
+                  </button>
+                )}
+              </div>
+            );
+          })}
           <hr />
           <button role="menuitem" class="item" onClick={() => (setOpen(false), onConnect())}>
-            <span class="tick">＋</span>Connect another GitHub host…
+            <span class="ini plain" aria-hidden="true">＋</span>
+            <span class="lbl">Add a host or account…</span>
           </button>
         </div>
       )}

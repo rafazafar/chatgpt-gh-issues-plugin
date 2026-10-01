@@ -32000,8 +32000,36 @@ function graphqlUrl(host) {
   if (host.endsWith(".ghe.com")) return `https://api.${host}/graphql`;
   return `https://${host}/api/graphql`;
 }
-function parseHostsYml(text) {
-  return [...text.matchAll(/^([A-Za-z0-9][A-Za-z0-9.-]*):\s*$/gm)].map((m2) => normalizeHost(m2[1]));
+function parseHostsYmlAccounts(text) {
+  const out = [];
+  let cur = null;
+  let usersIndent = -1;
+  for (const line of text.split("\n")) {
+    if (!line.trim() || line.trim().startsWith("#")) continue;
+    const indent = line.length - line.trimStart().length;
+    const host = indent === 0 ? /^([A-Za-z0-9][A-Za-z0-9.-]*):\s*$/.exec(line) : null;
+    if (host) {
+      cur = { host: normalizeHost(host[1]), users: [] };
+      out.push(cur);
+      usersIndent = -1;
+      continue;
+    }
+    if (!cur) continue;
+    if (usersIndent >= 0 && indent <= usersIndent) usersIndent = -1;
+    if (/^\s+users:\s*$/.test(line)) {
+      usersIndent = indent;
+      continue;
+    }
+    if (usersIndent >= 0) {
+      const u2 = /^\s+([A-Za-z0-9][A-Za-z0-9-]*):/.exec(line);
+      if (u2 && indent === usersIndent + 4 && !cur.users.includes(u2[1])) cur.users.push(u2[1]);
+      continue;
+    }
+    const active = /^\s+user:\s*(\S+)\s*$/.exec(line);
+    if (active) cur.active = active[1];
+  }
+  for (const h2 of out) if (h2.active && !h2.users.includes(h2.active)) h2.users.push(h2.active);
+  return out;
 }
 function ghConfigDirs() {
   const e = process.env;
@@ -32015,9 +32043,13 @@ function ghConfigDirs() {
 }
 async function listHosts() {
   const found = /* @__PURE__ */ new Set();
+  const accounts = [];
   for (const dir of ghConfigDirs()) {
     try {
-      parseHostsYml(await readFile(`${dir}/hosts.yml`, "utf8")).forEach((h2) => found.add(h2));
+      for (const h2 of parseHostsYmlAccounts(await readFile(`${dir}/hosts.yml`, "utf8"))) {
+        found.add(h2.host);
+        for (const login of h2.users) accounts.push({ host: h2.host, login, active: login === h2.active || !h2.active && h2.users.length === 1 });
+      }
       break;
     } catch {
     }
@@ -32028,8 +32060,13 @@ async function listHosts() {
   const hosts2 = [...found];
   if (!hosts2.length) hosts2.push(DEFAULT_HOST);
   const preferred = process.env.GH_HOST ? normalizeHost(process.env.GH_HOST) : void 0;
-  return { hosts: hosts2, default: preferred && hosts2.includes(preferred) ? preferred : hosts2.includes(DEFAULT_HOST) ? DEFAULT_HOST : hosts2[0] };
+  return {
+    hosts: hosts2,
+    default: preferred && hosts2.includes(preferred) ? preferred : hosts2.includes(DEFAULT_HOST) ? DEFAULT_HOST : hosts2[0],
+    accounts
+  };
 }
+var acct = (host, user) => ({ host: normalizeHost(host), user: user || void 0 });
 var tokenCache = /* @__PURE__ */ new Map();
 function ghCandidates() {
   const home = process.env.HOME ?? "";
@@ -32058,19 +32095,21 @@ function findGh() {
   })();
   return ghPath;
 }
-async function getToken(hostArg) {
+var ghTokenArgs = (host, user) => ["auth", "token", "--hostname", host, ...user ? ["--user", user] : []];
+async function getToken(hostArg, user) {
   const host = normalizeHost(hostArg);
-  const env = host === DEFAULT_HOST ? process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN : process.env.GH_ENTERPRISE_TOKEN ?? process.env.GITHUB_ENTERPRISE_TOKEN;
+  const env = user ? void 0 : host === DEFAULT_HOST ? process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN : process.env.GH_ENTERPRISE_TOKEN ?? process.env.GITHUB_ENTERPRISE_TOKEN;
   if (env) return env;
-  const cached2 = tokenCache.get(host);
+  const cacheKey = `${host}|${user ?? ""}`;
+  const cached2 = tokenCache.get(cacheKey);
   if (cached2 && Date.now() - cached2.at < 5 * 6e4) return cached2.value;
   let installed = false;
   for (const bin of ghCandidates()) {
     try {
-      const { stdout } = await run(bin, ["auth", "token", "--hostname", host], { timeout: 1e4 });
+      const { stdout } = await run(bin, ghTokenArgs(host, user), { timeout: 1e4 });
       const value = stdout.trim();
       if (value) {
-        tokenCache.set(host, { value, at: Date.now() });
+        tokenCache.set(cacheKey, { value, at: Date.now() });
         return value;
       }
       installed = true;
@@ -32083,14 +32122,17 @@ async function getToken(hostArg) {
     }
   }
   const login = host === DEFAULT_HOST ? "gh auth login" : `gh auth login --hostname ${host}`;
+  if (user && installed)
+    throw new GitHubError("no_token", `The GitHub CLI has no saved login for ${user} on ${host}. Run \`${login}\` to add it.`);
   const envName = host === DEFAULT_HOST ? "GITHUB_TOKEN" : "GH_ENTERPRISE_TOKEN";
   throw new GitHubError(
     "no_token",
     installed ? `The GitHub CLI isn't logged in to ${host}. Run \`${login}\` (then \`gh auth refresh -s project --hostname ${host}\` for Projects), or set ${envName}.` : `No credentials found for ${host}. Install the GitHub CLI (https://cli.github.com) and run \`${login}\`, or set ${envName} for the app.`
   );
 }
-async function gql(host, query, variables = {}, { tolerant = false } = {}) {
-  const token = await getToken(host);
+async function gql(who, query, variables = {}, { tolerant = false } = {}) {
+  const { host, user } = who;
+  const token = await getToken(host, user);
   let res;
   try {
     res = await fetch(graphqlUrl(host), {
@@ -32106,7 +32148,7 @@ async function gql(host, query, variables = {}, { tolerant = false } = {}) {
     throw new GitHubError("network", `Could not reach ${host}: ${e.message}`);
   }
   if (res.status === 401) {
-    tokenCache.delete(host);
+    tokenCache.delete(`${host}|${user ?? ""}`);
     throw new GitHubError("bad_token", `${host} rejected the token (401). Re-run \`gh auth login${host === DEFAULT_HOST ? "" : " --hostname " + host}\`.`);
   }
   if (!res.ok) throw new GitHubError("unknown", `${host} returned ${res.status}.`);
@@ -32176,14 +32218,15 @@ function toItem(n) {
   };
 }
 var avatarCache = /* @__PURE__ */ new Map();
-function inlineAvatar(url2, host = DEFAULT_HOST) {
+function inlineAvatar(url2, who = { host: DEFAULT_HOST }) {
+  const host = who.host;
   if (!url2 || url2.startsWith("data:")) return Promise.resolve(url2);
   let p2 = avatarCache.get(url2);
   if (!p2) {
     p2 = (async () => {
       try {
         const sameHost = host !== DEFAULT_HOST && new URL(url2).hostname.endsWith(host.replace(/^api\./, ""));
-        const headers = sameHost ? { authorization: `bearer ${await getToken(host)}` } : {};
+        const headers = sameHost ? { authorization: `bearer ${await getToken(host, who.user)}` } : {};
         const res = await fetch(url2, { headers, signal: AbortSignal.timeout(4e3) });
         if (!res.ok) return url2;
         const buf = Buffer.from(await res.arrayBuffer());
@@ -32197,11 +32240,11 @@ function inlineAvatar(url2, host = DEFAULT_HOST) {
   }
   return p2;
 }
-async function withAvatars(items, host = DEFAULT_HOST) {
+async function withAvatars(items, who = { host: DEFAULT_HOST }) {
   await Promise.all(
     items.flatMap(
       (i) => i.assignees.map(async (a) => {
-        a.avatarUrl = await inlineAvatar(a.avatarUrl, host);
+        a.avatarUrl = await inlineAvatar(a.avatarUrl, who);
       })
     )
   );
@@ -32216,10 +32259,10 @@ async function withoutOptionalFields(run2) {
     throw e;
   }
 }
-async function getViewer(hostArg) {
-  const host = normalizeHost(hostArg);
+async function getViewer(hostArg, user) {
+  const who = acct(hostArg, user);
   const { data } = await gql(
-    host,
+    who,
     `{ viewer { login name avatarUrl(size: 64) organizations(first: 50) { nodes { login } } } }`,
     {},
     { tolerant: true }
@@ -32227,7 +32270,7 @@ async function getViewer(hostArg) {
   return {
     login: data.viewer.login,
     name: data.viewer.name ?? null,
-    avatarUrl: await inlineAvatar(data.viewer.avatarUrl, host),
+    avatarUrl: await inlineAvatar(data.viewer.avatarUrl, who),
     orgs: data.viewer.organizations.nodes.map((o) => o.login)
   };
 }
@@ -32249,10 +32292,10 @@ function buildSearchQuery(p2) {
   return q.join(" ");
 }
 async function searchItems(p2, first = 40) {
-  const host = normalizeHost(p2.host);
+  const who = acct(p2.host, p2.user);
   const { data } = await withoutOptionalFields(
     (lean) => gql(
-      host,
+      who,
       `query($q: String!, $first: Int!, $after: String) {
         search(query: $q, type: ISSUE, first: $first, after: $after) {
           issueCount
@@ -32268,7 +32311,7 @@ async function searchItems(p2, first = 40) {
     )
   );
   return {
-    items: await withAvatars(data.search.nodes.map(toItem).filter(Boolean), host),
+    items: await withAvatars(data.search.nodes.map(toItem).filter(Boolean), who),
     totalCount: data.search.issueCount,
     hasNextPage: data.search.pageInfo.hasNextPage,
     endCursor: data.search.pageInfo.endCursor
@@ -32287,10 +32330,10 @@ function toProject(n, owner) {
   };
 }
 var PROJECT_SUMMARY = `id number title url shortDescription updatedAt closed total: items { totalCount }`;
-async function listProjects(hostArg) {
-  const host = normalizeHost(hostArg);
+async function listProjects(hostArg, user) {
+  const who = acct(hostArg, user);
   const { data, warnings } = await gql(
-    host,
+    who,
     `{
       viewer {
         login
@@ -32315,8 +32358,8 @@ async function listProjects(hostArg) {
   out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   return { projects: out, warnings };
 }
-async function getBoard(projectId, hostArg, maxItems = 300) {
-  const host = normalizeHost(hostArg);
+async function getBoard(projectId, hostArg, user, maxItems = 300) {
+  const who = acct(hostArg, user);
   const items = [];
   let after = null;
   let project = null;
@@ -32324,7 +32367,7 @@ async function getBoard(projectId, hostArg, maxItems = 300) {
   let truncated = false;
   while (items.length < maxItems) {
     const { data } = await gql(
-      host,
+      who,
       `query($id: ID!, $after: String) {
         node(id: $id) {
           ... on ProjectV2 {
@@ -32383,15 +32426,15 @@ async function getBoard(projectId, hostArg, maxItems = 300) {
     after = node.items.pageInfo.endCursor;
     if (items.length >= maxItems) truncated = true;
   }
-  await withAvatars(items, host);
+  await withAvatars(items, who);
   return { project, groupFields, items, truncated };
 }
-async function getIssueDetail(repo, number4, hostArg) {
-  const host = normalizeHost(hostArg);
+async function getIssueDetail(repo, number4, hostArg, user) {
+  const who = acct(hostArg, user);
   const [owner, name] = repo.split("/");
   if (!owner || !name) throw new GitHubError("unknown", `Invalid repo "${repo}"; expected owner/name.`);
   const { data } = await withoutOptionalFields((lean) => gql(
-    host,
+    who,
     `query($owner: String!, $name: String!, $number: Int!) {
       repository(owner: $owner, name: $name) {
         issueOrPullRequest(number: $number) {
@@ -32415,7 +32458,7 @@ async function getIssueDetail(repo, number4, hostArg) {
   const n = data.repository?.issueOrPullRequest;
   const item = toItem(n);
   if (!item) throw new GitHubError("unknown", `${repo}#${number4} not found.`);
-  await withAvatars([item], host);
+  await withAvatars([item], who);
   return {
     ...item,
     body: n.body ?? "",
@@ -32432,7 +32475,7 @@ async function getIssueDetail(repo, number4, hostArg) {
     }))
   };
 }
-async function checkHost(hostArg) {
+async function checkHost(hostArg, user) {
   const host = normalizeHost(hostArg);
   const ghInstalled = await findGh() !== null;
   const out = (state, extra = {}) => ({ host, state, ghInstalled, ...extra });
@@ -32449,7 +32492,7 @@ async function checkHost(hostArg) {
     return out("unreachable", { message: `Couldn't reach ${host}: ${e.message}` });
   }
   try {
-    const viewer2 = await getViewer(host);
+    const viewer2 = await getViewer(host, user);
     return out("ready", { login: viewer2.login });
   } catch (e) {
     if (e instanceof GitHubError && (e.code === "no_token" || e.code === "bad_token")) return out(e.code, { message: e.message });
@@ -32493,12 +32536,12 @@ function errorOf(e) {
 }
 var open = async () => ({ ready: true });
 var hosts = () => listHosts();
-var viewer = (host) => getViewer(host);
+var viewer = (host, user) => getViewer(host, user);
 var search = (p2) => searchItems({ ...DEFAULT_SEARCH, ...p2 });
-var projects = (host) => listProjects(host);
-var board = (projectId, host) => getBoard(projectId, host);
-var issue2 = (repo, number4, host) => getIssueDetail(repo, number4, host);
-var checkHost2 = (host) => checkHost(host);
+var projects = (host, user) => listProjects(host, user);
+var board = (projectId, host, user) => getBoard(projectId, host, user);
+var issue2 = (repo, number4, host, user) => getIssueDetail(repo, number4, host, user);
+var checkHost2 = (host, user) => checkHost(host, user);
 var suggestHosts2 = () => suggestHosts().then((hosts2) => ({ hosts: hosts2 }));
 
 // src/server/register.ts
@@ -32524,8 +32567,10 @@ function guard(fn, summarise) {
   };
 }
 var hostField = external_exports.string().optional().describe("GitHub host, e.g. github.com or ghe.corp.com. Defaults to the signed-in default.");
+var userField = external_exports.string().optional().describe("Signed-in account (login) on that host. Defaults to the GitHub CLI's active account.");
 var searchShape = {
   host: hostField,
+  user: userField,
   scope: external_exports.enum(["involves", "assigned", "author", "mentions", "all"]).default("involves"),
   kind: external_exports.enum(["issue", "pr", "any"]).default("issue"),
   state: external_exports.enum(["open", "closed", "all"]).default("open"),
@@ -32592,7 +32637,7 @@ function registerLaunchpad(server2, html2) {
       annotations: readonly2,
       _meta: { ui: { resourceUri: UI_URI, visibility: ["app", "model"] } }
     },
-    guard(hosts, (r2) => `Hosts: ${r2.hosts.join(", ")} (default: ${r2.default})`)
+    guard(hosts, (r2) => `Hosts: ${r2.hosts.join(", ")} (default: ${r2.default}). Accounts: ${r2.accounts.map((a) => `${a.login}@${a.host}${a.active ? "*" : ""}`).join(", ") || "none listed"}`)
   );
   K3(
     server2,
@@ -32600,11 +32645,11 @@ function registerLaunchpad(server2, html2) {
     {
       title: "Check a GitHub host",
       description: "Check whether a GitHub host is reachable and signed in, and what to do if not.",
-      inputSchema: { host: external_exports.string() },
+      inputSchema: { host: external_exports.string(), user: userField },
       annotations: readonly2,
       _meta: { ui: { resourceUri: UI_URI, visibility: ["app"] } }
     },
-    guard(({ host }) => checkHost2(host))
+    guard(({ host, user }) => checkHost2(host, user))
   );
   K3(
     server2,
@@ -32624,11 +32669,11 @@ function registerLaunchpad(server2, html2) {
     {
       title: "Current GitHub user",
       description: "The GitHub account Issue Launchpad is signed in as.",
-      inputSchema: { host: hostField },
+      inputSchema: { host: hostField, user: userField },
       annotations: readonly2,
       _meta: { ui: { resourceUri: UI_URI, visibility: ["app"] } }
     },
-    guard(({ host }) => viewer(host))
+    guard(({ host, user }) => viewer(host, user))
   );
   K3(
     server2,
@@ -32652,11 +32697,11 @@ function registerLaunchpad(server2, html2) {
     {
       title: "List GitHub Projects",
       description: "List GitHub Projects (v2) visible to the connected account.",
-      inputSchema: { host: hostField },
+      inputSchema: { host: hostField, user: userField },
       annotations: readonly2,
       _meta: { ui: { resourceUri: UI_URI, visibility: ["app", "model"] } }
     },
-    guard(({ host }) => projects(host), (r2) => r2.projects.map((p2) => `- ${p2.owner}/${p2.number} ${p2.title} (${p2.itemCount} items)`).join("\n"))
+    guard(({ host, user }) => projects(host, user), (r2) => r2.projects.map((p2) => `- ${p2.owner}/${p2.number} ${p2.title} (${p2.itemCount} items)`).join("\n"))
   );
   K3(
     server2,
@@ -32664,11 +32709,11 @@ function registerLaunchpad(server2, html2) {
     {
       title: "Read a GitHub Project board",
       description: "Read every item of a GitHub Project (v2) with its field values, by project node id.",
-      inputSchema: { projectId: external_exports.string(), host: hostField },
+      inputSchema: { projectId: external_exports.string(), host: hostField, user: userField },
       annotations: readonly2,
       _meta: { ui: { resourceUri: UI_URI, visibility: ["app"] } }
     },
-    guard(({ projectId, host }) => board(projectId, host))
+    guard(({ projectId, host, user }) => board(projectId, host, user))
   );
   K3(
     server2,
@@ -32676,12 +32721,12 @@ function registerLaunchpad(server2, html2) {
     {
       title: "Read a GitHub issue",
       description: "Read the full body, labels, linked pull requests and recent comments of an issue or pull request.",
-      inputSchema: { repo: external_exports.string().describe("owner/name"), number: external_exports.number().int(), host: hostField },
+      inputSchema: { repo: external_exports.string().describe("owner/name"), number: external_exports.number().int(), host: hostField, user: userField },
       annotations: readonly2,
       _meta: { ui: { resourceUri: UI_URI, visibility: ["app", "model"] } }
     },
     guard(
-      ({ repo, number: number4, host }) => issue2(repo, number4, host),
+      ({ repo, number: number4, host, user }) => issue2(repo, number4, host, user),
       (d2) => `# ${d2.repo}#${d2.number}: ${d2.title}
 State: ${d2.state}
 Labels: ${d2.labels.map((l) => l.name).join(", ") || "none"}
@@ -32701,7 +32746,7 @@ var html = await readFile2(new URL("./app.html", import.meta.url), "utf8");
 var server = new McpServer({
   name: "issue-launchpad",
   title: "Issue Launchpad",
-  version: "0.1.6",
+  version: "0.1.7",
   icons: [{ src: "data:image/svg+xml," + encodeURIComponent(iconSvg), mimeType: "image/svg+xml" }]
 });
 registerLaunchpad(server, html);

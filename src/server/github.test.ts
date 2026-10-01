@@ -67,7 +67,8 @@ test("an Enterprise-only login defaults to that host; both logins default to git
   const dir = await mkdtemp(path.join(tmpdir(), "gh-"));
   await writeFile(path.join(dir, "hosts.yml"), "ghe.corp.com:\n    user: me\n");
   await withEnv({ GH_CONFIG_DIR: dir }, async () => {
-    assert.deepEqual(await listHosts(), { hosts: ["ghe.corp.com"], default: "ghe.corp.com" });
+    const r = await listHosts();
+    assert.deepEqual([r.hosts, r.default], [["ghe.corp.com"], "ghe.corp.com"]);
   });
   await writeFile(path.join(dir, "hosts.yml"), "github.com:\n    user: me\nghe.corp.com:\n    user: me2\n");
   await withEnv({ GH_CONFIG_DIR: dir }, async () => {
@@ -206,4 +207,66 @@ test("checkHost: rejected credential → bad_token", async () => {
       assert.equal((await checkHost("ghe.axa.example")).state, "bad_token");
     });
   } finally { restore(); }
+});
+
+// ------------------------------------------------------------ multiple accounts
+import { getToken, ghTokenArgs, parseHostsYmlAccounts } from "./github.ts";
+
+const MULTI = `github.com:
+    git_protocol: https
+    users:
+        personal-me:
+            oauth_token: x
+        work-me:
+    user: work-me
+ghe.corp.com:
+    users:
+        taro:
+    user: taro
+    git_protocol: ssh
+`;
+
+test("hosts.yml: every account per host is listed, with the active one marked", () => {
+  assert.deepEqual(parseHostsYmlAccounts(MULTI), [
+    { host: "github.com", users: ["personal-me", "work-me"], active: "work-me" },
+    { host: "ghe.corp.com", users: ["taro"], active: "taro" },
+  ]);
+});
+
+test("hosts.yml: an older single-account file still yields its account", () => {
+  assert.deepEqual(parseHostsYmlAccounts("github.com:\n    user: solo\n    git_protocol: https\n"), [{ host: "github.com", users: ["solo"], active: "solo" }]);
+});
+
+test("listHosts exposes accounts and which is active", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "gh-"));
+  await writeFile(path.join(dir, "hosts.yml"), MULTI);
+  await withEnv({ GH_CONFIG_DIR: dir }, async () => {
+    const { accounts } = await listHosts();
+    assert.deepEqual(accounts.filter((a) => a.host === "github.com").map((a) => [a.login, a.active]), [["personal-me", false], ["work-me", true]]);
+  });
+});
+
+test("gh is asked for the chosen account's token", () => {
+  assert.deepEqual(ghTokenArgs("github.com"), ["auth", "token", "--hostname", "github.com"]);
+  assert.deepEqual(ghTokenArgs("github.com", "personal-me"), ["auth", "token", "--hostname", "github.com", "--user", "personal-me"]);
+});
+
+test("an env token applies to the default account, but not once a specific account is picked", async () => {
+  await withEnv({ GITHUB_TOKEN: "env-token" }, async () => {
+    assert.equal(await getToken("github.com"), "env-token");
+    // picking a specific user must NOT silently reuse the env token (it'd be the wrong account)
+    await assert.rejects(() => getToken("github.com", "nobody-has-this-login-xyz"), /no saved login|No credentials|isn't logged in/);
+  });
+});
+
+test("requests for a chosen account never use another account's cached token", async () => {
+  const seen: (string | null)[] = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = (async (_u: string, init?: RequestInit) => (seen.push(new Headers(init?.headers).get("authorization")), reply({ data: emptySearch }))) as typeof fetch;
+  try {
+    await withEnv({ GITHUB_TOKEN: "tok-default" }, async () => {
+      await searchItems({ ...DEFAULT_SEARCH });
+    });
+  } finally { globalThis.fetch = real; }
+  assert.deepEqual(seen, ["bearer tok-default"]);
 });

@@ -61,18 +61,23 @@ Seen in production on 2026-09-28. Repro: \`scripts/burst.sh --tenants 40\`.
 const page = <T>(items: T[]): Page<T> => ({ items, totalCount: items.length, hasNextPage: false, endCursor: null });
 
 export const open = async () => ({ ready: true });
-// DEMO_HOSTS=github.com,ghe.acme.com shows the host switcher.
-export const hosts = async () => {
-  const list = (process.env.DEMO_HOSTS ?? "github.com").split(",");
-  return { hosts: list, default: list[0] };
-};
+// Two accounts on github.com plus a company host, so the account switcher has something to show.
+export const hosts = async () => ({
+  hosts: ["github.com", "github.example-corp.co.jp"],
+  default: "github.com",
+  accounts: [
+    { host: "github.com", login: "ada", active: true },
+    { host: "github.com", login: "ada-consulting", active: false },
+    { host: "github.example-corp.co.jp", login: "ada.l", active: true },
+  ],
+});
 // Demo hosts: names containing "vpn" are unreachable, "ready" are connected, "old" have a bad token; others need sign-in.
 export const checkHost = async (host: string): Promise<HostCheck> => {
   const state = /vpn/.test(host) ? "unreachable" : /ready/.test(host) ? "ready" : /old/.test(host) ? "bad_token" : "no_token";
   return { host, state, ghInstalled: !/nogh/.test(host), login: state === "ready" ? "ada" : undefined, message: state === "unreachable" ? `Couldn't reach ${host}: fetch failed` : undefined };
 };
 export const suggestHosts = async () => ({ hosts: ["github.example-corp.co.jp", "git.example.com"] });
-export const viewer = async (): Promise<Viewer> => ({ login: "ada", name: "Ada", avatarUrl: ada.avatarUrl, orgs: ["acme"] });
+export const viewer = async (_host?: string, user?: string): Promise<Viewer> => ({ login: user ?? "ada", name: "Ada", avatarUrl: ada.avatarUrl, orgs: ["acme"] });
 export const search = async (p: SearchParams) => {
   if (/new\./.test(p.host ?? "")) throw new GitHubError("no_token", `The GitHub CLI isn't logged in to ${p.host}.`);
   const needle = (p.text ?? "").toLowerCase();

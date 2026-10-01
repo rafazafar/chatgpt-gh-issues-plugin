@@ -5,15 +5,15 @@ import { MODES, buildPrompt, defaultMode, modesFor, type Mode } from "./prompt.t
 import { renderMarkdown } from "./markdown.ts";
 import { timeAgo, cx } from "./util.ts";
 import { Avatars, LabelChip, StateIcon, Svg } from "./ui.tsx";
-import { fetchDetail, peekDetail } from "./cache.ts";
+import { fetchDetail, peekDetail, type Who } from "./cache.ts";
 
 const shorten = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s);
 
 type Props = {
   item: Item;
   host: Host;
-  /** GitHub instance the item belongs to (undefined = default). */
-  ghHost?: string;
+  /** Which GitHub host/account the item belongs to (undefined = defaults). */
+  who?: Who;
   mode: Mode;
   onMode: (m: Mode) => void;
   onClose: () => void;
@@ -24,7 +24,7 @@ type Props = {
   onCopy: (text: string) => Promise<void>;
 };
 
-export function Detail({ item, host, ghHost, mode, onMode, onClose, onStart, onAttach, onCopy }: Props) {
+export function Detail({ item, host, who, mode, onMode, onClose, onStart, onAttach, onCopy }: Props) {
   const [detail, setDetail] = useState<IssueDetail | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
@@ -34,14 +34,14 @@ export function Detail({ item, host, ghHost, mode, onMode, onClose, onStart, onA
 
   // Reload full text whenever the focused item changes.
   useEffect(() => {
-    setDetail(item.repo && item.number != null ? (peekDetail(item.repo, item.number, ghHost) ?? null) : null);
+    setDetail(item.repo && item.number != null ? (peekDetail(item.repo, item.number, who) ?? null) : null);
     setErr(null);
     setNotes("");
     setShowPrompt(false);
     setEdited(null);
     if (item.kind === "draft" || !item.repo || item.number == null) return;
     let cancelled = false;
-    fetchDetail(host, item.repo, item.number, ghHost)
+    fetchDetail(host, item.repo, item.number, who)
       .then((d) => !cancelled && setDetail(d))
       .catch((e) => !cancelled && setErr(String(e.message ?? e)));
     return () => {
@@ -52,7 +52,7 @@ export function Detail({ item, host, ghHost, mode, onMode, onClose, onStart, onA
   const full: Item | IssueDetail = detail ?? item;
   const modes = modesFor(item);
   const active: Mode = modes.some((m) => m.id === mode) ? mode : defaultMode(item);
-  const generated = useMemo(() => buildPrompt({ item: full, mode: active, notes, host: ghHost }), [full, active, notes, ghHost]);
+  const generated = useMemo(() => buildPrompt({ item: full, mode: active, notes, host: who?.host, user: who?.user }), [full, active, notes, who?.host, who?.user]);
   // Hand edits win until the inputs that generated the prompt change again.
   useEffect(() => setEdited(null), [generated]);
   const prompt = edited ?? generated;

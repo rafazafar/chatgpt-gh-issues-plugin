@@ -12,13 +12,13 @@ const port = Number(process.env.PORT ?? 5199);
 const tools = {
   "launchpad.open": () => h.open(),
   "launchpad.hosts": () => h.hosts(),
-  "launchpad.checkHost": (a) => h.checkHost(a.host),
+  "launchpad.checkHost": (a) => h.checkHost(a.host, a.user),
   "launchpad.suggestHosts": () => h.suggestHosts(),
-  "launchpad.viewer": (a) => h.viewer(a.host),
+  "launchpad.viewer": (a) => h.viewer(a.host, a.user),
   "launchpad.search": (a) => h.search(a),
-  "launchpad.projects": (a) => h.projects(a.host),
-  "launchpad.board": (a) => h.board(a.projectId, a.host),
-  "launchpad.issue": (a) => h.issue(a.repo, a.number, a.host),
+  "launchpad.projects": (a) => h.projects(a.host, a.user),
+  "launchpad.board": (a) => h.board(a.projectId, a.host, a.user),
+  "launchpad.issue": (a) => h.issue(a.repo, a.number, a.host, a.user),
 };
 
 createServer(async (req, res) => {

@@ -4,12 +4,12 @@ import { DEFAULT_SEARCH } from "../shared/types.ts";
 import { connectHost, type Attachment, type Host } from "./host.ts";
 import { buildContext, buildPrompt, defaultMode, modesFor, type Mode } from "./prompt.ts";
 import { Resizer } from "./Resizer.tsx";
-import { ConnectDialog, ConnectPanel, HostMenu } from "./Connect.tsx";
+import { AccountMenu, ConnectDialog, ConnectPanel } from "./Connect.tsx";
 import { Detail } from "./Detail.tsx";
 import { IssuesView } from "./IssuesView.tsx";
 import { ProjectsView } from "./ProjectsView.tsx";
 import { Segmented, Svg } from "./ui.tsx";
-import { cacheGet, cacheSet, fetchDetail, searchKey } from "./cache.ts";
+import { cacheGet, cacheSet, fetchDetail, searchKey, type Who } from "./cache.ts";
 import { cx, load, normHost, save } from "./util.ts";
 
 const chipLabel = (i: Item) => {
@@ -55,9 +55,12 @@ export function App() {
   // Which GitHub (github.com or an Enterprise host) we're looking at. params.host is the source of truth.
   const [hostInfo, setHostInfo] = useState<HostsInfo | null>(null);
   const effHost = params.host ?? hostInfo?.default;
-  const hk = () => paramsRef.current.host ?? "";
+  const hk = () => `${paramsRef.current.host ?? ""}|${paramsRef.current.user ?? ""}`;
+  const who = (): Who => ({ host: paramsRef.current.host, user: paramsRef.current.user });
   // Hosts the user added by hand (e.g. a company GitHub they only use over SSH for git).
   const [customHosts, setCustomHosts] = useState<string[]>(() => load<string[]>("customHosts", []));
+  const customHostsRef = useRef(customHosts);
+  customHostsRef.current = customHosts;
   const [connectOpen, setConnectOpen] = useState(false);
 
   // projects
@@ -101,7 +104,7 @@ export function App() {
     const saved = cacheGet<Viewer>(key);
     if (saved) setViewer(saved.value);
     void track(() =>
-      h.callTool<Viewer>("launchpad.viewer", { host: paramsRef.current.host }).then((v) => {
+      h.callTool<Viewer>("launchpad.viewer", who()).then((v) => {
         cacheSet(key, v);
         setViewer(v);
       }),
@@ -160,16 +163,31 @@ export function App() {
     if (!host) return;
     loadViewer();
     void runSearch(paramsRef.current);
-    // Learn which GitHub instances are available; a remembered host that's gone falls back to the default.
-    host
-      .callTool<HostsInfo>("launchpad.hosts")
-      .then((info) => {
-        setHostInfo(info);
-        const chosen = paramsRef.current.host;
-        if (chosen && !info.hosts.includes(chosen)) switchHost(info.default);
-      })
-      .catch(() => undefined);
+    void refreshHosts(true);
   }, [host]);
+
+  /** Which hosts/accounts the CLI knows. Re-read whenever it may have changed (window focus, menu open). */
+  const refreshHosts = useCallback(async (validate = false) => {
+    const h = hostRef.current;
+    if (!h) return;
+    try {
+      const info = await h.callTool<HostsInfo>("launchpad.hosts");
+      setHostInfo(info);
+      if (!validate) return;
+      const { host: chosenHost, user: chosenUser } = paramsRef.current;
+      if (chosenHost && !info.hosts.includes(chosenHost) && !customHostsRef.current.includes(chosenHost)) switchTo({});
+      else if (chosenUser && info.accounts.some((a) => a.host === (chosenHost ?? info.default)) && !info.accounts.some((a) => a.host === (chosenHost ?? info.default) && a.login === chosenUser))
+        switchTo({ host: chosenHost }); // the remembered account was removed: fall back to the active one
+    } catch {
+      /* the picker just keeps what it had */
+    }
+  }, []);
+
+  useEffect(() => {
+    const again = () => void refreshHosts();
+    window.addEventListener("focus", again);
+    return () => window.removeEventListener("focus", again);
+  }, [refreshHosts]);
 
   const api = useCallback(<T,>(name: string, args: Record<string, unknown> = {}) => hostRef.current!.callTool<T>(name, args), []);
 
@@ -189,12 +207,12 @@ export function App() {
       save("customHosts", next);
     }
     setConnectOpen(false);
-    if (n !== (paramsRef.current.host ?? hostInfo?.default)) switchHost(n);
+    if (n !== (paramsRef.current.host ?? hostInfo?.default)) switchTo({ host: n });
     else reload();
   };
 
-  const switchHost = (next: string) => {
-    const p: SearchParams = { ...DEFAULT_SEARCH, ...paramsRef.current, host: next, after: null, repo: undefined, labels: undefined, text: undefined };
+  const switchTo = ({ host: nextHost, user: nextUser }: { host?: string; user?: string }) => {
+    const p: SearchParams = { ...DEFAULT_SEARCH, ...paramsRef.current, host: nextHost, user: nextUser, after: null, repo: undefined, labels: undefined, text: undefined };
     paramsRef.current = p;
     setParams(p);
     save("params", p);
@@ -244,7 +262,7 @@ export function App() {
     }
     await track(async () => {
       try {
-        const r = await h.callTool<Listing>("launchpad.projects", { host: paramsRef.current.host });
+        const r = await h.callTool<Listing>("launchpad.projects", who());
         cacheSet(listKey, r);
         setProjects(r.projects);
         setProjWarn(r.warnings[0] ?? null);
@@ -278,7 +296,7 @@ export function App() {
     setBoardRefreshing(true);
     void track(() =>
       h
-        .callTool<Board>("launchpad.board", { projectId, host: paramsRef.current.host })
+        .callTool<Board>("launchpad.board", { projectId, ...who() })
         .then((b) => {
           if (cancelled) return;
           cacheSet(key, b);
@@ -308,7 +326,7 @@ export function App() {
     window.clearTimeout(hoverTimer.current);
     if (!item || !item.repo || item.number == null || !hostRef.current) return;
     hoverTimer.current = window.setTimeout(() => {
-      void fetchDetail(hostRef.current!, item.repo!, item.number!, paramsRef.current.host).catch(() => undefined);
+      void fetchDetail(hostRef.current!, item.repo!, item.number!, who()).catch(() => undefined);
     }, 120);
   };
 
@@ -318,7 +336,7 @@ export function App() {
       items.map(async (i) => {
         if (i.kind === "draft" || !i.repo || i.number == null) return i;
         try {
-          return await fetchDetail(hostRef.current!, i.repo, i.number, paramsRef.current.host);
+          return await fetchDetail(hostRef.current!, i.repo, i.number, who());
         } catch {
           return i;
         }
@@ -339,7 +357,7 @@ export function App() {
 
   const quickStart = async (item: Item) => {
     const [full] = await withDetail([item]);
-    await startPrompt(buildPrompt({ item: full, mode: modeFor(item), host: effHost }), describe(item));
+    await startPrompt(buildPrompt({ item: full, mode: modeFor(item), host: effHost, user: params.user }), describe(item));
   };
 
   const startMany = async () => {
@@ -349,7 +367,7 @@ export function App() {
     let sent = 0;
     for (const it of full) {
       try {
-        const how = await hostRef.current!.startThread(buildPrompt({ item: it, mode: modeFor(it), host: effHost }));
+        const how = await hostRef.current!.startThread(buildPrompt({ item: it, mode: modeFor(it), host: effHost, user: params.user }));
         if (how === "copied") {
           say("Prompts can only be copied here — start tasks one at a time.", "err");
           return;
@@ -445,21 +463,18 @@ export function App() {
             <input id="search" placeholder="Search · try label:bug no:assignee   ( / )" value={text} onInput={(e) => setText((e.target as HTMLInputElement).value)} />
           </div>
         )}
-        {host && (
-          <HostMenu
-            current={effHost ?? "github.com"}
-            warn={!!fatal}
-            hosts={[...(hostInfo?.hosts ?? ["github.com"]), ...customHosts]}
-            onSwitch={switchHost}
-            onConnect={() => setConnectOpen(true)}
-          />
-        )}
         <button class={cx("icon-btn", busy > 0 && "spin")} title={busy > 0 ? "Updating…" : "Refresh"} aria-label="Refresh" onClick={refresh}><Svg d="refresh" /></button>
-        {viewer && (
-          <div class="viewer" title={viewer.orgs.length ? `Orgs: ${viewer.orgs.join(", ")}` : viewer.login}>
-            <img src={viewer.avatarUrl} alt="" width="22" height="22" />
-            <span>{viewer.login}</span>
-          </div>
+        {host && (
+          <AccountMenu
+            viewer={viewer}
+            hostInfo={hostInfo}
+            customHosts={customHosts}
+            current={{ host: effHost ?? "github.com", user: params.user }}
+            warn={!!fatal}
+            onSwitch={switchTo}
+            onConnect={() => setConnectOpen(true)}
+            onOpen={() => void refreshHosts()}
+          />
         )}
         <div class={cx("progress", busy > 0 && "on")} role="progressbar" aria-label="Loading" aria-hidden={busy === 0} />
       </header>
@@ -492,7 +507,7 @@ export function App() {
         {focus && host && <Resizer width={detailW} onChange={setDetailW} onCommit={(w) => save("detailW", w)} />}
         {focus && host && (
           <Detail
-            item={focus} host={host} ghHost={params.host} mode={mode}
+            item={focus} host={host} who={{ host: params.host, user: params.user }} mode={mode}
             onMode={(m) => { setMode(m); save("mode", m); }}
             onClose={() => setFocus(null)} onStart={startPrompt} onAttach={(text, title) => attach([{ key: focus.id, title, text }], "the task")} onCopy={copy}
           />

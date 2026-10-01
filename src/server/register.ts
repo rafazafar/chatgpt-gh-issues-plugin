@@ -39,8 +39,11 @@ function guard<A, R extends object>(fn: (a: A) => Promise<R>, summarise?: (r: R)
 
 const hostField = z.string().optional().describe("GitHub host, e.g. github.com or ghe.corp.com. Defaults to the signed-in default.");
 
+const userField = z.string().optional().describe("Signed-in account (login) on that host. Defaults to the GitHub CLI's active account.");
+
 const searchShape = {
   host: hostField,
+  user: userField,
   scope: z.enum(["involves", "assigned", "author", "mentions", "all"]).default("involves"),
   kind: z.enum(["issue", "pr", "any"]).default("issue"),
   state: z.enum(["open", "closed", "all"]).default("open"),
@@ -116,7 +119,7 @@ export function registerLaunchpad(server: McpServer, html: string) {
       annotations: readonly,
       _meta: { ui: { resourceUri: UI_URI, visibility: ["app", "model"] } },
     },
-    guard(h.hosts, (r) => `Hosts: ${r.hosts.join(", ")} (default: ${r.default})`),
+    guard(h.hosts, (r) => `Hosts: ${r.hosts.join(", ")} (default: ${r.default}). Accounts: ${r.accounts.map((a) => `${a.login}@${a.host}${a.active ? "*" : ""}`).join(", ") || "none listed"}`),
   );
 
   registerAppTool(
@@ -125,11 +128,11 @@ export function registerLaunchpad(server: McpServer, html: string) {
     {
       title: "Check a GitHub host",
       description: "Check whether a GitHub host is reachable and signed in, and what to do if not.",
-      inputSchema: { host: z.string() },
+      inputSchema: { host: z.string(), user: userField },
       annotations: readonly,
       _meta: { ui: { resourceUri: UI_URI, visibility: ["app"] } },
     },
-    guard(({ host }: { host: string }) => h.checkHost(host)),
+    guard(({ host, user }: { host: string; user?: string }) => h.checkHost(host, user)),
   );
 
   registerAppTool(
@@ -151,11 +154,11 @@ export function registerLaunchpad(server: McpServer, html: string) {
     {
       title: "Current GitHub user",
       description: "The GitHub account Issue Launchpad is signed in as.",
-      inputSchema: { host: hostField },
+      inputSchema: { host: hostField, user: userField },
       annotations: readonly,
       _meta: { ui: { resourceUri: UI_URI, visibility: ["app"] } },
     },
-    guard(({ host }: { host?: string }) => h.viewer(host)),
+    guard(({ host, user }: { host?: string; user?: string }) => h.viewer(host, user)),
   );
 
   registerAppTool(
@@ -183,11 +186,11 @@ export function registerLaunchpad(server: McpServer, html: string) {
     {
       title: "List GitHub Projects",
       description: "List GitHub Projects (v2) visible to the connected account.",
-      inputSchema: { host: hostField },
+      inputSchema: { host: hostField, user: userField },
       annotations: readonly,
       _meta: { ui: { resourceUri: UI_URI, visibility: ["app", "model"] } },
     },
-    guard(({ host }: { host?: string }) => h.projects(host), (r) => r.projects.map((p) => `- ${p.owner}/${p.number} ${p.title} (${p.itemCount} items)`).join("\n")),
+    guard(({ host, user }: { host?: string; user?: string }) => h.projects(host, user), (r) => r.projects.map((p) => `- ${p.owner}/${p.number} ${p.title} (${p.itemCount} items)`).join("\n")),
   );
 
   registerAppTool(
@@ -196,11 +199,11 @@ export function registerLaunchpad(server: McpServer, html: string) {
     {
       title: "Read a GitHub Project board",
       description: "Read every item of a GitHub Project (v2) with its field values, by project node id.",
-      inputSchema: { projectId: z.string(), host: hostField },
+      inputSchema: { projectId: z.string(), host: hostField, user: userField },
       annotations: readonly,
       _meta: { ui: { resourceUri: UI_URI, visibility: ["app"] } },
     },
-    guard(({ projectId, host }: { projectId: string; host?: string }) => h.board(projectId, host)),
+    guard(({ projectId, host, user }: { projectId: string; host?: string; user?: string }) => h.board(projectId, host, user)),
   );
 
   registerAppTool(
@@ -210,12 +213,12 @@ export function registerLaunchpad(server: McpServer, html: string) {
       title: "Read a GitHub issue",
       description:
         "Read the full body, labels, linked pull requests and recent comments of an issue or pull request.",
-      inputSchema: { repo: z.string().describe("owner/name"), number: z.number().int(), host: hostField },
+      inputSchema: { repo: z.string().describe("owner/name"), number: z.number().int(), host: hostField, user: userField },
       annotations: readonly,
       _meta: { ui: { resourceUri: UI_URI, visibility: ["app", "model"] } },
     },
     guard(
-      ({ repo, number, host }: { repo: string; number: number; host?: string }) => h.issue(repo, number, host),
+      ({ repo, number, host, user }: { repo: string; number: number; host?: string; user?: string }) => h.issue(repo, number, host, user),
       (d) =>
         `# ${d.repo}#${d.number}: ${d.title}\nState: ${d.state}\nLabels: ${d.labels.map((l) => l.name).join(", ") || "none"}\nURL: ${d.url}\n\n${d.body}\n\n` +
         d.recentComments.map((c) => `--- ${c.author} (${c.createdAt})\n${c.body}`).join("\n\n"),
