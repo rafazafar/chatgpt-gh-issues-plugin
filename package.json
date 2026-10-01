@@ -1,6 +1,6 @@
 {
   "name": "issue-launchpad",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "description": "Browse GitHub issues and Projects from the Codex sidebar and kick off tasks.",
   "license": "Apache-2.0",

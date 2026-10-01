@@ -28,6 +28,22 @@ export class GitHubError extends Error {
 let cachedToken: { value: string; at: number } | null = null;
 
 /**
+ * Desktop apps often start the plugin with a minimal PATH (no Homebrew), so `gh` is also
+ * looked up in the usual install locations rather than only by name.
+ */
+export function ghCandidates(): string[] {
+  const home = process.env.HOME ?? "";
+  return [
+    "gh",
+    "/opt/homebrew/bin/gh", // macOS, Apple silicon
+    "/usr/local/bin/gh", // macOS Intel / Linux
+    "/usr/bin/gh",
+    "/home/linuxbrew/.linuxbrew/bin/gh",
+    ...(home ? [`${home}/.local/bin/gh`] : []),
+  ];
+}
+
+/**
  * Resolve a token without ever asking the user to paste one: env vars first,
  * then the GitHub CLI session they already have on this machine.
  */
@@ -36,18 +52,30 @@ export async function getToken(): Promise<string> {
   if (env) return env;
   if (cachedToken && Date.now() - cachedToken.at < 5 * 60_000)
     return cachedToken.value;
-  try {
-    const { stdout } = await run("gh", ["auth", "token"], { timeout: 10_000 });
-    const value = stdout.trim();
-    if (!value) throw new Error("empty");
-    cachedToken = { value, at: Date.now() };
-    return value;
-  } catch {
-    throw new GitHubError(
-      "no_token",
-      "No GitHub credentials found. Run `gh auth login` (and `gh auth refresh -s project` for Projects), or set GITHUB_TOKEN.",
-    );
+  let installed = false;
+  for (const bin of ghCandidates()) {
+    try {
+      const { stdout } = await run(bin, ["auth", "token"], { timeout: 10_000 });
+      const value = stdout.trim();
+      if (value) {
+        cachedToken = { value, at: Date.now() };
+        return value;
+      }
+      installed = true; // gh exists but isn't logged in; no point trying other copies
+      break;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "ENOENT") {
+        installed = true; // gh ran and failed (not logged in)
+        break;
+      }
+    }
   }
+  throw new GitHubError(
+    "no_token",
+    installed
+      ? "The GitHub CLI isn't logged in. Run `gh auth login` (then `gh auth refresh -s project` for Projects), or set GITHUB_TOKEN."
+      : "No GitHub credentials found. Install the GitHub CLI (https://cli.github.com) and run `gh auth login`, or set GITHUB_TOKEN for the app.",
+  );
 }
 
 type GqlResponse<T> = {

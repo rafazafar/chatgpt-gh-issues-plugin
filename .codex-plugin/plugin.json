@@ -1,6 +1,6 @@
 {
   "name": "issue-launchpad",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Browse GitHub issues and Projects from the Codex sidebar and launch tasks from them.",
   "author": {
     "name": "Zafar"

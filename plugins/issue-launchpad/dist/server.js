@@ -31990,23 +31990,46 @@ var GitHubError = class extends Error {
   }
 };
 var cachedToken = null;
+function ghCandidates() {
+  const home = process.env.HOME ?? "";
+  return [
+    "gh",
+    "/opt/homebrew/bin/gh",
+    // macOS, Apple silicon
+    "/usr/local/bin/gh",
+    // macOS Intel / Linux
+    "/usr/bin/gh",
+    "/home/linuxbrew/.linuxbrew/bin/gh",
+    ...home ? [`${home}/.local/bin/gh`] : []
+  ];
+}
 async function getToken() {
   const env = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
   if (env) return env;
   if (cachedToken && Date.now() - cachedToken.at < 5 * 6e4)
     return cachedToken.value;
-  try {
-    const { stdout } = await run("gh", ["auth", "token"], { timeout: 1e4 });
-    const value = stdout.trim();
-    if (!value) throw new Error("empty");
-    cachedToken = { value, at: Date.now() };
-    return value;
-  } catch {
-    throw new GitHubError(
-      "no_token",
-      "No GitHub credentials found. Run `gh auth login` (and `gh auth refresh -s project` for Projects), or set GITHUB_TOKEN."
-    );
+  let installed = false;
+  for (const bin of ghCandidates()) {
+    try {
+      const { stdout } = await run(bin, ["auth", "token"], { timeout: 1e4 });
+      const value = stdout.trim();
+      if (value) {
+        cachedToken = { value, at: Date.now() };
+        return value;
+      }
+      installed = true;
+      break;
+    } catch (e) {
+      if (e.code !== "ENOENT") {
+        installed = true;
+        break;
+      }
+    }
   }
+  throw new GitHubError(
+    "no_token",
+    installed ? "The GitHub CLI isn't logged in. Run `gh auth login` (then `gh auth refresh -s project` for Projects), or set GITHUB_TOKEN." : "No GitHub credentials found. Install the GitHub CLI (https://cli.github.com) and run `gh auth login`, or set GITHUB_TOKEN for the app."
+  );
 }
 async function gql(query, variables = {}, { tolerant = false } = {}) {
   const token = await getToken();
@@ -32506,7 +32529,7 @@ var html = await readFile(new URL("./app.html", import.meta.url), "utf8");
 var server = new McpServer({
   name: "issue-launchpad",
   title: "Issue Launchpad",
-  version: "0.1.2",
+  version: "0.1.3",
   icons: [{ src: "data:image/svg+xml," + encodeURIComponent(iconSvg), mimeType: "image/svg+xml" }]
 });
 registerLaunchpad(server, html);

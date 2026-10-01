@@ -48,7 +48,7 @@ on any of them in one click, pre-loaded with the issue, the repo and a plan-firs
 
 ## Install
 
-Requires the Codex desktop app / CLI and Node.js 22+.
+Requires the Codex desktop app and CLI, Node.js 22+, and a GitHub login (see [GitHub access](#github-access-one-time-setup)).
 
 ```sh
 codex plugin marketplace add rafazafar/chatgpt-gh-issues-plugin
@@ -64,20 +64,39 @@ codex plugin remove issue-launchpad@chatgpt-gh-issues-plugin
 codex plugin marketplace remove chatgpt-gh-issues-plugin
 ```
 
-### GitHub access
+### GitHub access (one-time setup)
 
-There's no token to paste. The plugin uses, in order:
+The plugin talks to GitHub's GraphQL API itself; the **GitHub CLI is only used to borrow your login**,
+so you never paste a token. It finds credentials in this order:
 
-1. `GITHUB_TOKEN` or `GH_TOKEN` from the environment, then
-2. your existing [GitHub CLI](https://cli.github.com) session (`gh auth token`).
+1. `GITHUB_TOKEN` or `GH_TOKEN` in the environment of the Codex app, otherwise
+2. your [GitHub CLI](https://cli.github.com) session (`gh auth token`). `gh` is looked up on `PATH` and
+   in the usual install locations (`/opt/homebrew/bin`, `/usr/local/bin`, …), since desktop apps often
+   start with a minimal `PATH`.
+
+**Easiest path (recommended):**
 
 ```sh
+brew install gh                 # or see https://cli.github.com
 gh auth login
-gh auth refresh -s project   # needed for Projects boards (read:project also works)
+gh auth refresh -s project      # gh's default login has no Projects access
+gh auth status                  # check: scopes should include repo, read:org, project
 ```
 
-Requests go only to `api.github.com`. Nothing is stored or sent anywhere else. The plugin is read-only
-toward GitHub.
+**Without the CLI:** create a [classic personal access token](https://github.com/settings/tokens) and make
+it available to the app as `GITHUB_TOKEN`. Apps launched from the Dock don't see variables exported in
+`~/.zshrc`, so start Codex from a terminal where it's set, or set it at the system level.
+
+| Scope | Needed for |
+| --- | --- |
+| `repo` (or `public_repo` for public repos only) | Issues and PRs |
+| `read:org` | Listing your orgs and their Projects |
+| `project` or `read:project` | The Projects tab (Issues works without it) |
+
+If your orgs enforce SAML SSO, authorise the token for them (GitHub → Settings → Tokens → Configure SSO).
+
+Requests go only to `api.github.com` (and avatar images from `avatars.githubusercontent.com`). Nothing is
+stored or sent anywhere else, and the plugin never writes to GitHub.
 
 ## How it works
 
@@ -133,7 +152,8 @@ Codex refreshes its cached copy.
 
 - **No sidebar entry:** run `codex plugin list` and check it says `installed, enabled`, then fully
   quit and reopen the app.
-- **"No GitHub credentials found":** run `gh auth login`.
+- **"No GitHub credentials found" / "gh isn't logged in":** run `gh auth login`, or provide `GITHUB_TOKEN`
+  (see *GitHub access* above), then click refresh in the plugin.
 - **Projects tab is empty:** run `gh auth refresh -s project`. Org projects may also need SSO authorisation
   of your token.
 - **Avatars don't show:** they're inlined by the server; check network access to `avatars.githubusercontent.com`.
