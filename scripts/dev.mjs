@@ -10,15 +10,15 @@ const h = process.env.DEMO ? { ...demo, errorOf: real.errorOf } : real;
 
 const port = Number(process.env.PORT ?? 5199);
 const tools = {
-  "launchpad.open": () => h.open(),
-  "launchpad.hosts": () => h.hosts(),
-  "launchpad.checkHost": (a) => h.checkHost(a.host, a.user),
-  "launchpad.suggestHosts": () => h.suggestHosts(),
-  "launchpad.viewer": (a) => h.viewer(a.host, a.user),
-  "launchpad.search": (a) => h.search(a),
-  "launchpad.projects": (a) => h.projects(a.host, a.user),
-  "launchpad.board": (a) => h.board(a.projectId, a.host, a.user),
-  "launchpad.issue": (a) => h.issue(a.repo, a.number, a.host, a.user),
+  "gh_tasks.open": () => h.open(),
+  "gh_tasks.hosts": () => h.hosts(),
+  "gh_tasks.checkHost": (a) => h.checkHost(a.host, a.user),
+  "gh_tasks.suggestHosts": () => h.suggestHosts(),
+  "gh_tasks.viewer": (a) => h.viewer(a.host, a.user),
+  "gh_tasks.search": (a) => h.search(a),
+  "gh_tasks.projects": (a) => h.projects(a.host, a.user),
+  "gh_tasks.board": (a) => h.board(a.projectId, a.host, a.user),
+  "gh_tasks.issue": (a) => h.issue(a.repo, a.number, a.host, a.user),
 };
 
 createServer(async (req, res) => {
@@ -43,4 +43,4 @@ createServer(async (req, res) => {
     res.writeHead(500, { "content-type": "application/json" });
     res.end(JSON.stringify({ error: err }));
   }
-}).listen(port, () => console.log(`Issue Launchpad preview → http://localhost:${port}`));
+}).listen(port, () => console.log(`GitHub Tasks preview → http://localhost:${port}`));

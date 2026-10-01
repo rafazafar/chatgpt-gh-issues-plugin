@@ -32140,7 +32140,7 @@ async function gql(who, query, variables = {}, { tolerant = false } = {}) {
       headers: {
         authorization: `bearer ${token}`,
         "content-type": "application/json",
-        "user-agent": "codex-issue-launchpad"
+        "user-agent": "codex-gh-tasks"
       },
       body: JSON.stringify({ query, variables })
     });
@@ -32482,7 +32482,7 @@ async function checkHost(hostArg, user) {
   try {
     const res = await fetch(graphqlUrl(host), {
       method: "POST",
-      headers: { "content-type": "application/json", "user-agent": "codex-issue-launchpad" },
+      headers: { "content-type": "application/json", "user-agent": "codex-gh-tasks" },
       body: JSON.stringify({ query: "{ __typename }" }),
       signal: AbortSignal.timeout(6e3)
     });
@@ -32545,7 +32545,7 @@ var checkHost2 = (host, user) => checkHost(host, user);
 var suggestHosts2 = () => suggestHosts().then((hosts2) => ({ hosts: hosts2 }));
 
 // src/server/register.ts
-var UI_URI = "ui://issue-launchpad/app-v1";
+var UI_URI = "ui://gh-tasks/app-v1";
 var readonly2 = { readOnlyHint: true, destructiveHint: false, openWorldHint: true };
 var ok = (data, text = "") => ({
   content: text ? [{ type: "text", text }] : [],
@@ -32580,8 +32580,8 @@ var searchShape = {
   sort: external_exports.enum(["updated", "created", "comments"]).default("updated"),
   after: external_exports.string().nullish().describe("Pagination cursor from a previous result")
 };
-function registerLaunchpad(server2, html2) {
-  N3(server2, "Issue Launchpad", UI_URI, {}, async () => ({
+function registerGhTasks(server2, html2) {
+  N3(server2, "GitHub Tasks", UI_URI, {}, async () => ({
     contents: [
       {
         uri: UI_URI,
@@ -32605,10 +32605,10 @@ function registerLaunchpad(server2, html2) {
   });
   K3(
     server2,
-    "launchpad.open",
+    "gh_tasks.open",
     {
-      title: "Issue Launchpad",
-      description: "Open the Issue Launchpad: browse GitHub issues and Projects and start tasks.",
+      title: "GitHub Tasks",
+      description: "Open GitHub Tasks: browse GitHub issues and Projects and start tasks.",
       inputSchema: {},
       annotations: readonly2,
       _meta: ui([{ type: "global" }])
@@ -32617,10 +32617,10 @@ function registerLaunchpad(server2, html2) {
   );
   K3(
     server2,
-    "launchpad.tray",
+    "gh_tasks.tray",
     {
-      title: "Issue Launchpad",
-      description: "Open Issue Launchpad beside this conversation.",
+      title: "GitHub Tasks",
+      description: "Open GitHub Tasks beside this conversation.",
       inputSchema: {},
       annotations: readonly2,
       _meta: ui([{ type: "thread" }])
@@ -32629,7 +32629,7 @@ function registerLaunchpad(server2, html2) {
   );
   K3(
     server2,
-    "launchpad.hosts",
+    "gh_tasks.hosts",
     {
       title: "GitHub hosts",
       description: "GitHub instances (github.com, GitHub Enterprise) this machine is signed in to.",
@@ -32641,7 +32641,7 @@ function registerLaunchpad(server2, html2) {
   );
   K3(
     server2,
-    "launchpad.checkHost",
+    "gh_tasks.checkHost",
     {
       title: "Check a GitHub host",
       description: "Check whether a GitHub host is reachable and signed in, and what to do if not.",
@@ -32653,7 +32653,7 @@ function registerLaunchpad(server2, html2) {
   );
   K3(
     server2,
-    "launchpad.suggestHosts",
+    "gh_tasks.suggestHosts",
     {
       title: "Suggest GitHub hosts",
       description: "Hostnames found in the user's SSH config (names only), offered as suggestions when connecting a host.",
@@ -32665,10 +32665,10 @@ function registerLaunchpad(server2, html2) {
   );
   K3(
     server2,
-    "launchpad.viewer",
+    "gh_tasks.viewer",
     {
       title: "Current GitHub user",
-      description: "The GitHub account Issue Launchpad is signed in as.",
+      description: "The GitHub account GitHub Tasks is signed in as.",
       inputSchema: { host: hostField, user: userField },
       annotations: readonly2,
       _meta: { ui: { resourceUri: UI_URI, visibility: ["app"] } }
@@ -32677,7 +32677,7 @@ function registerLaunchpad(server2, html2) {
   );
   K3(
     server2,
-    "launchpad.search",
+    "gh_tasks.search",
     {
       title: "Search GitHub issues",
       description: "Search issues or pull requests on the connected GitHub account. Supports GitHub search qualifiers in `text` (e.g. `label:bug no:assignee`).",
@@ -32693,7 +32693,7 @@ function registerLaunchpad(server2, html2) {
   );
   K3(
     server2,
-    "launchpad.projects",
+    "gh_tasks.projects",
     {
       title: "List GitHub Projects",
       description: "List GitHub Projects (v2) visible to the connected account.",
@@ -32705,7 +32705,7 @@ function registerLaunchpad(server2, html2) {
   );
   K3(
     server2,
-    "launchpad.board",
+    "gh_tasks.board",
     {
       title: "Read a GitHub Project board",
       description: "Read every item of a GitHub Project (v2) with its field values, by project node id.",
@@ -32717,7 +32717,7 @@ function registerLaunchpad(server2, html2) {
   );
   K3(
     server2,
-    "launchpad.issue",
+    "gh_tasks.issue",
     {
       title: "Read a GitHub issue",
       description: "Read the full body, labels, linked pull requests and recent comments of an issue or pull request.",
@@ -32744,10 +32744,10 @@ ${c.body}`).join("\n\n")
 var iconSvg = await readFile2(new URL("../assets/icon.svg", import.meta.url), "utf8");
 var html = await readFile2(new URL("./app.html", import.meta.url), "utf8");
 var server = new McpServer({
-  name: "issue-launchpad",
-  title: "Issue Launchpad",
+  name: "gh-tasks",
+  title: "GitHub Tasks",
   version: "0.1.7",
   icons: [{ src: "data:image/svg+xml," + encodeURIComponent(iconSvg), mimeType: "image/svg+xml" }]
 });
-registerLaunchpad(server, html);
+registerGhTasks(server, html);
 await server.connect(new StdioServerTransport());

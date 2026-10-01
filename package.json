@@ -1,5 +1,5 @@
 {
-  "name": "issue-launchpad",
+  "name": "gh-tasks",
   "version": "0.1.7",
   "private": true,
   "description": "Browse GitHub issues and Projects from the Codex sidebar and kick off tasks.",
@@ -13,7 +13,7 @@
     "dev": "node ./scripts/dev.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "node --test \"src/**/*.test.ts\"",
-    "build:plugin": "node ./scripts/build.mjs --plugin-dir plugins/issue-launchpad"
+    "build:plugin": "node ./scripts/build.mjs --plugin-dir plugins/gh-tasks"
   },
   "dependencies": {
     "@modelcontextprotocol/ext-apps": "^1.7.5",
@@ -29,7 +29,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/rafazafar/codex-gh-issues-plugin.git"
+    "url": "git+https://github.com/rafazafar/codex-gh-tasks-plugin.git"
   },
-  "homepage": "https://github.com/rafazafar/codex-gh-issues-plugin#readme"
+  "homepage": "https://github.com/rafazafar/codex-gh-tasks-plugin#readme"
 }

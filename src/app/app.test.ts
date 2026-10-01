@@ -29,7 +29,7 @@ test("plan prompt asks for approval and carries repo + context", () => {
   assert.match(p, /wait for my approval/i);
   assert.match(p, /Project: Board › Todo/);
   assert.match(p, /Priority: P1/);
-  assert.match(p, /launchpad\.issue tool \(repo: "a\/b", number: 7\)/);
+  assert.match(p, /gh_tasks\.issue tool \(repo: "a\/b", number: 7\)/);
 });
 
 test("implement prompt opens a PR; notes are appended", () => {

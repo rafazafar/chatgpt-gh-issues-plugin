@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "issue-launchpad": {
+    "gh-tasks": {
       "command": "node",
       "args": ["./dist/server.js"],
       "cwd": "."

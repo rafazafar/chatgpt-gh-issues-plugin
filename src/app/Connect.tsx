@@ -52,7 +52,7 @@ export function ConnectPanel({ host, api, app, onReady, autoContinue }: PanelPro
     const mine = ++seq.current;
     setBusy(true);
     try {
-      const r = await api<HostCheck>("launchpad.checkHost", { host });
+      const r = await api<HostCheck>("gh_tasks.checkHost", { host });
       if (mine === seq.current) setRes(r);
     } catch (e) {
       if (mine === seq.current) setRes({ host, state: "unreachable", ghInstalled: true, message: (e as Error).message });
@@ -235,7 +235,7 @@ export function ConnectDialog({ api, app, onUse, onClose, initialHost }: DialogP
                 onClick={async () => {
                   setDetecting(true);
                   try {
-                    setFound((await api<{ hosts: string[] }>("launchpad.suggestHosts")).hosts);
+                    setFound((await api<{ hosts: string[] }>("gh_tasks.suggestHosts")).hosts);
                   } catch {
                     setFound([]);
                   } finally {

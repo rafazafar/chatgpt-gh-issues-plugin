@@ -8,7 +8,7 @@ import type { IssueDetail, SearchParams } from "../shared/types.ts";
 type Entry<T> = { value: T; at: number };
 
 const mem = new Map<string, Entry<unknown>>();
-const PREFIX = "launchpad:cache:";
+const PREFIX = "gh_tasks:cache:";
 const INDEX = PREFIX + "_index";
 const MAX_PERSISTED = 8;
 const MAX_BYTES = 600_000;
@@ -67,7 +67,7 @@ export function fetchDetail(host: Host, repo: string, n: number, who?: Who): Pro
   if (existing && Date.now() - existing.at < DETAIL_TTL) return existing.promise;
   const entry: { promise: Promise<IssueDetail>; value?: IssueDetail; at: number } = {
     at: Date.now(),
-    promise: host.callTool<IssueDetail>("launchpad.issue", { repo, number: n, host: who?.host, user: who?.user }).then(
+    promise: host.callTool<IssueDetail>("gh_tasks.issue", { repo, number: n, host: who?.host, user: who?.user }).then(
       (v) => ((entry.value = v), v),
       (e) => (details.delete(key), Promise.reject(e)),
     ),

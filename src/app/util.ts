@@ -12,7 +12,7 @@ export function timeAgo(iso: string | null): string {
 
 export function load<T>(key: string, fallback: T): T {
   try {
-    const v = localStorage.getItem("launchpad:" + key);
+    const v = localStorage.getItem("gh_tasks:" + key);
     return v == null ? fallback : (JSON.parse(v) as T);
   } catch {
     return fallback;
@@ -20,7 +20,7 @@ export function load<T>(key: string, fallback: T): T {
 }
 export function save(key: string, value: unknown) {
   try {
-    localStorage.setItem("launchpad:" + key, JSON.stringify(value));
+    localStorage.setItem("gh_tasks:" + key, JSON.stringify(value));
   } catch {
     /* storage can be unavailable in sandboxed iframes */
   }

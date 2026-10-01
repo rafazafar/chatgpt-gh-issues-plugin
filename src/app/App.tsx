@@ -104,7 +104,7 @@ export function App() {
     const saved = cacheGet<Viewer>(key);
     if (saved) setViewer(saved.value);
     void track(() =>
-      h.callTool<Viewer>("launchpad.viewer", who()).then((v) => {
+      h.callTool<Viewer>("gh_tasks.viewer", who()).then((v) => {
         cacheSet(key, v);
         setViewer(v);
       }),
@@ -132,7 +132,7 @@ export function App() {
 
     await track(async () => {
       try {
-        const res = await h.callTool<Page<Item>>("launchpad.search", { ...next });
+        const res = await h.callTool<Page<Item>>("gh_tasks.search", { ...next });
         if (seq !== reqSeq.current) return; // a newer query superseded this one
         if (append) setPage((prev) => (prev ? { ...res, items: [...prev.items, ...res.items] } : res));
         else {
@@ -171,7 +171,7 @@ export function App() {
     const h = hostRef.current;
     if (!h) return;
     try {
-      const info = await h.callTool<HostsInfo>("launchpad.hosts");
+      const info = await h.callTool<HostsInfo>("gh_tasks.hosts");
       setHostInfo(info);
       if (!validate) return;
       const { host: chosenHost, user: chosenUser } = paramsRef.current;
@@ -262,7 +262,7 @@ export function App() {
     }
     await track(async () => {
       try {
-        const r = await h.callTool<Listing>("launchpad.projects", who());
+        const r = await h.callTool<Listing>("gh_tasks.projects", who());
         cacheSet(listKey, r);
         setProjects(r.projects);
         setProjWarn(r.warnings[0] ?? null);
@@ -296,7 +296,7 @@ export function App() {
     setBoardRefreshing(true);
     void track(() =>
       h
-        .callTool<Board>("launchpad.board", { projectId, ...who() })
+        .callTool<Board>("gh_tasks.board", { projectId, ...who() })
         .then((b) => {
           if (cancelled) return;
           cacheSet(key, b);
@@ -454,7 +454,7 @@ export function App() {
   return (
     <div class={`app ${focus ? "has-detail" : ""} ${host?.mode === "codex" ? "host-codex" : ""}`} style={{ "--detail-w": `${detailW}px` }}>
       <header class="topbar">
-        <div class="brand"><Svg d="play" size={13} /> Issue Launchpad</div>
+        <div class="brand"><Svg d="play" size={13} /> GitHub Tasks</div>
         <Segmented label="View" value={tab} onChange={changeTab} options={[{ id: "issues", label: "Issues" }, { id: "projects", label: "Projects" }]} />
         <div class="spacer" />
         {tab === "issues" && !fatal && (

@@ -240,7 +240,7 @@ async function gql<T>(
       headers: {
         authorization: `bearer ${token}`,
         "content-type": "application/json",
-        "user-agent": "codex-issue-launchpad",
+        "user-agent": "codex-gh-tasks",
       },
       body: JSON.stringify({ query, variables }),
     });
@@ -651,7 +651,7 @@ export async function checkHost(hostArg: string, user?: string): Promise<HostChe
   try {
     const res = await fetch(graphqlUrl(host), {
       method: "POST",
-      headers: { "content-type": "application/json", "user-agent": "codex-issue-launchpad" },
+      headers: { "content-type": "application/json", "user-agent": "codex-gh-tasks" },
       body: JSON.stringify({ query: "{ __typename }" }),
       signal: AbortSignal.timeout(6_000),
     });

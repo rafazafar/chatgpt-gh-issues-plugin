@@ -11,7 +11,7 @@ import type {
 import { z } from "zod/v4";
 import * as h from "./handlers.ts";
 
-const UI_URI = "ui://issue-launchpad/app-v1";
+const UI_URI = "ui://gh-tasks/app-v1";
 
 const readonly = { readOnlyHint: true, destructiveHint: false, openWorldHint: true };
 
@@ -56,8 +56,8 @@ const searchShape = {
 
 // Sidebar icon: the SDK's registerTool has no per-tool `icons`, so entrypoints use the
 // server icon set in index.ts (spec fallback #2).
-export function registerLaunchpad(server: McpServer, html: string) {
-  registerAppResource(server, "Issue Launchpad", UI_URI, {}, async () => ({
+export function registerGhTasks(server: McpServer, html: string) {
+  registerAppResource(server, "GitHub Tasks", UI_URI, {}, async () => ({
     contents: [
       {
         uri: UI_URI,
@@ -84,10 +84,10 @@ export function registerLaunchpad(server: McpServer, html: string) {
   // Sidebar entrypoint: fullscreen board, args are always {}.
   registerAppTool(
     server,
-    "launchpad.open",
+    "gh_tasks.open",
     {
-      title: "Issue Launchpad",
-      description: "Open the Issue Launchpad: browse GitHub issues and Projects and start tasks.",
+      title: "GitHub Tasks",
+      description: "Open GitHub Tasks: browse GitHub issues and Projects and start tasks.",
       inputSchema: {},
       annotations: readonly,
       _meta: ui([{ type: "global" }]),
@@ -98,10 +98,10 @@ export function registerLaunchpad(server: McpServer, html: string) {
   // Thread entrypoint: the same app as a tab beside the conversation.
   registerAppTool(
     server,
-    "launchpad.tray",
+    "gh_tasks.tray",
     {
-      title: "Issue Launchpad",
-      description: "Open Issue Launchpad beside this conversation.",
+      title: "GitHub Tasks",
+      description: "Open GitHub Tasks beside this conversation.",
       inputSchema: {},
       annotations: readonly,
       _meta: ui([{ type: "thread" }]),
@@ -111,7 +111,7 @@ export function registerLaunchpad(server: McpServer, html: string) {
 
   registerAppTool(
     server,
-    "launchpad.hosts",
+    "gh_tasks.hosts",
     {
       title: "GitHub hosts",
       description: "GitHub instances (github.com, GitHub Enterprise) this machine is signed in to.",
@@ -124,7 +124,7 @@ export function registerLaunchpad(server: McpServer, html: string) {
 
   registerAppTool(
     server,
-    "launchpad.checkHost",
+    "gh_tasks.checkHost",
     {
       title: "Check a GitHub host",
       description: "Check whether a GitHub host is reachable and signed in, and what to do if not.",
@@ -137,7 +137,7 @@ export function registerLaunchpad(server: McpServer, html: string) {
 
   registerAppTool(
     server,
-    "launchpad.suggestHosts",
+    "gh_tasks.suggestHosts",
     {
       title: "Suggest GitHub hosts",
       description: "Hostnames found in the user's SSH config (names only), offered as suggestions when connecting a host.",
@@ -150,10 +150,10 @@ export function registerLaunchpad(server: McpServer, html: string) {
 
   registerAppTool(
     server,
-    "launchpad.viewer",
+    "gh_tasks.viewer",
     {
       title: "Current GitHub user",
-      description: "The GitHub account Issue Launchpad is signed in as.",
+      description: "The GitHub account GitHub Tasks is signed in as.",
       inputSchema: { host: hostField, user: userField },
       annotations: readonly,
       _meta: { ui: { resourceUri: UI_URI, visibility: ["app"] } },
@@ -163,7 +163,7 @@ export function registerLaunchpad(server: McpServer, html: string) {
 
   registerAppTool(
     server,
-    "launchpad.search",
+    "gh_tasks.search",
     {
       title: "Search GitHub issues",
       description:
@@ -182,7 +182,7 @@ export function registerLaunchpad(server: McpServer, html: string) {
 
   registerAppTool(
     server,
-    "launchpad.projects",
+    "gh_tasks.projects",
     {
       title: "List GitHub Projects",
       description: "List GitHub Projects (v2) visible to the connected account.",
@@ -195,7 +195,7 @@ export function registerLaunchpad(server: McpServer, html: string) {
 
   registerAppTool(
     server,
-    "launchpad.board",
+    "gh_tasks.board",
     {
       title: "Read a GitHub Project board",
       description: "Read every item of a GitHub Project (v2) with its field values, by project node id.",
@@ -208,7 +208,7 @@ export function registerLaunchpad(server: McpServer, html: string) {
 
   registerAppTool(
     server,
-    "launchpad.issue",
+    "gh_tasks.issue",
     {
       title: "Read a GitHub issue",
       description:

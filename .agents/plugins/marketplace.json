@@ -1,10 +1,10 @@
 {
-  "name": "codex-gh-issues-plugin",
-  "interface": { "displayName": "GitHub Issues Launchpad" },
+  "name": "codex-gh-tasks-plugin",
+  "interface": { "displayName": "GitHub Tasks" },
   "plugins": [
     {
-      "name": "issue-launchpad",
-      "source": { "source": "local", "path": "./plugins/issue-launchpad" },
+      "name": "gh-tasks",
+      "source": { "source": "local", "path": "./plugins/gh-tasks" },
       "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
       "category": "Developer Tools"
     }

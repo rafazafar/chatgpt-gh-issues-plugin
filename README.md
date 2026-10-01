@@ -1,6 +1,6 @@
-# Issue Launchpad
+# GitHub Tasks
 
-**A Codex / ChatGPT desktop plugin that turns your GitHub account into a task launchpad.**
+**A Codex / ChatGPT desktop plugin that turns your GitHub account into a task workspace.**
 Browse every issue you're involved in, see your GitHub Projects as boards, and start a Codex thread
 on any of them in one click, pre-loaded with the issue, the repo and a plan-first or implement-now brief.
 
@@ -50,7 +50,7 @@ on any of them in one click, pre-loaded with the issue, the repo and a plan-firs
 - **Batch.** Tick several items to start one thread each, or attach them all to the composer.
 - **Resizable detail panel** (drag the edge, double-click to reset, arrow keys to nudge; width is remembered).
 - **Keyboard:** `j`/`k` move · `x` select · `/` search · `Esc` close.
-- **Model tools.** Codex itself can call `launchpad.search`, `launchpad.projects` and `launchpad.issue`
+- **Model tools.** Codex itself can call `gh_tasks.search`, `gh_tasks.projects` and `gh_tasks.issue`
   to read issues without leaving the conversation.
 
 ## Install
@@ -58,19 +58,19 @@ on any of them in one click, pre-loaded with the issue, the repo and a plan-firs
 Requires the Codex desktop app and CLI, Node.js 22+, and a GitHub login (see [GitHub access](#github-access-one-time-setup)).
 
 ```sh
-codex plugin marketplace add rafazafar/codex-gh-issues-plugin
-codex plugin add issue-launchpad@codex-gh-issues-plugin
+codex plugin marketplace add rafazafar/codex-gh-tasks-plugin
+codex plugin add gh-tasks@codex-gh-tasks-plugin
 ```
 
-Fully quit and reopen the app, then choose **Issue Launchpad** in the sidebar.
+Fully quit and reopen the app, then choose **GitHub Tasks** in the sidebar.
 
 ### Update
 
 Plugins don't update themselves. When a new version is released, run:
 
 ```sh
-codex plugin marketplace upgrade codex-gh-issues-plugin
-codex plugin add issue-launchpad@codex-gh-issues-plugin
+codex plugin marketplace upgrade codex-gh-tasks-plugin
+codex plugin add gh-tasks@codex-gh-tasks-plugin
 ```
 
 Then fully quit and reopen the app. The first command pulls the latest release; the second installs it (no need to
@@ -82,8 +82,8 @@ remove first). Check with `codex plugin list`; the VERSION column should show th
 Uninstall:
 
 ```sh
-codex plugin remove issue-launchpad@codex-gh-issues-plugin
-codex plugin marketplace remove codex-gh-issues-plugin
+codex plugin remove gh-tasks@codex-gh-tasks-plugin
+codex plugin marketplace remove codex-gh-tasks-plugin
 ```
 
 ### GitHub access (one-time setup)
@@ -190,13 +190,13 @@ stored or sent anywhere else, and the plugin never writes to GitHub.
 
 ## How it works
 
-Issue Launchpad is built on the [OpenAI MCP Extensions](https://github.com/openai/mcp-extensions)
+GitHub Tasks is built on the [OpenAI MCP Extensions](https://github.com/openai/mcp-extensions)
 ([docs](https://developers.openai.com/plugins/build/extensions)): a local **MCP server** (stdio) that also
 serves an **MCP App** UI.
 
 | Piece | Where | Extension used |
 | --- | --- | --- |
-| Sidebar app + side-panel app | `launchpad.open`, `launchpad.tray` tools | `openai/ui` entrypoints: `global`, `thread` |
+| Sidebar app + side-panel app | `gh_tasks.open`, `gh_tasks.tray` tools | `openai/ui` entrypoints: `global`, `thread` |
 | Start a new thread | `src/app/host.ts` | `ui/message` with `target: "new"` |
 | Add to composer | `src/app/host.ts` | `ui/update-model-context` + `_meta["openai/title"]` |
 | GitHub data | `src/server/github.ts` | plain GraphQL over `fetch` (github.com + Enterprise) |
@@ -204,7 +204,7 @@ serves an **MCP App** UI.
 
 ```
 .agents/plugins/marketplace.json   marketplace manifest (repo root = marketplace)
-plugins/issue-launchpad/           the built, installable plugin (committed so Git install works)
+plugins/gh-tasks/                  the built, installable plugin (committed so Git install works)
 src/server/                        MCP server: tools, GitHub GraphQL client, demo fixtures
 src/app/                           Preact UI, host bridge, prompt builder
 .codex-plugin/ .mcp.json skills/   plugin manifest sources
@@ -218,7 +218,7 @@ scripts/dev.mjs                    standalone browser preview
 npm install
 npm test               # query builder, prompts, markdown sanitising
 npm run typecheck
-npm run build:plugin   # rebuild plugins/issue-launchpad (commit the result)
+npm run build:plugin   # rebuild plugins/gh-tasks (commit the result)
 ```
 
 **Preview the UI in a browser** (no Codex needed, real GitHub data; "Start thread" copies the prompt):
@@ -233,7 +233,7 @@ DEMO=1 LATENCY=3000 npm run dev   # simulate a slow GitHub to see the loading st
 
 ```sh
 codex plugin marketplace add "$PWD"
-codex plugin add issue-launchpad@codex-gh-issues-plugin
+codex plugin add gh-tasks@codex-gh-tasks-plugin
 ```
 
 Bump `version` in `.codex-plugin/plugin.json` when you change the plugin, then remove and re-add it so

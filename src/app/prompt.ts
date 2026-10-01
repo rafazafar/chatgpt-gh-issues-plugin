@@ -38,7 +38,7 @@ const INSTRUCTIONS: Record<Mode, string[]> = {
   ],
 };
 
-const trim = (s: string, n: number) => (s.length > n ? s.slice(0, n).trimEnd() + "\n… (truncated; call launchpad.issue for the full text)" : s);
+const trim = (s: string, n: number) => (s.length > n ? s.slice(0, n).trimEnd() + "\n… (truncated; call gh_tasks.issue for the full text)" : s);
 
 export type PromptInput = {
   item: Item | IssueDetail;
@@ -82,7 +82,7 @@ export function buildPrompt({ item, mode, notes, host, user }: PromptInput): str
     lines.push(
       "",
       `Repository: ${item.repo}. If the current workspace is not a checkout of it, find or clone it first.`,
-      `Use the launchpad.issue tool (repo: "${item.repo}", number: ${item.number}${enterprise ? `, host: "${enterprise}"` : ""}${user ? `, user: "${user}"` : ""}) for the full text and comments.`,
+      `Use the gh_tasks.issue tool (repo: "${item.repo}", number: ${item.number}${enterprise ? `, host: "${enterprise}"` : ""}${user ? `, user: "${user}"` : ""}) for the full text and comments.`,
     );
   }
 

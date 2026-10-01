@@ -77,7 +77,7 @@ export async function connectHost(): Promise<Host> {
     };
   }
 
-  const app = new App({ name: "issue-launchpad", version: "0.1.0" });
+  const app = new App({ name: "gh-tasks", version: "0.1.0" });
   const ext = new OpenAIExtensions(app);
 
   const applyContext = (ctx: ReturnType<App["getHostContext"]>) => {
